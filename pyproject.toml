@@ -4,6 +4,7 @@ description = ""
 version = "1.0.0"
 license = {file = "LICENSE"} 
 
+[project.urls]
 Repository = "https://github.com/c0dezer019/AssetManager"
 #  Used by Comfy Registry https://registry.comfy.org
 Documentation = "https://github.com/c0dezer019/AssetManager/wiki"
