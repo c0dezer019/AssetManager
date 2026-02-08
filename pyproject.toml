@@ -1,17 +1,16 @@
 [project]
-name = "genhistory"
-description = "An advanced assets tab for easy management of assets. This add filtering and sorting, as well as persistence."
+name = "assetmanager"
+description = ""
 version = "1.0.0"
 license = {file = "LICENSE"} 
 
-[project.urls]
-Repository = "https://github.com/c0dezer019/GenHistory"
+Repository = "https://github.com/c0dezer019/AssetManager"
 #  Used by Comfy Registry https://registry.comfy.org
-Documentation = "https://github.com/c0dezer019/GenHistory/wiki"
-"Bug Tracker" = "https://github.com/c0dezer019/GenHistory/issues"
+Documentation = "https://github.com/c0dezer019/AssetManager/wiki"
+"Bug Tracker" = "https://github.com/c0dezer019/AssetManager/issues"
 
 [tool.comfy]
-PublisherId = "DefinitelyNotHuman"
-DisplayName = "GenHistory"
+PublisherId = "c0dezer019"
+DisplayName = "AssetManager"
 Icon = ""
 includes = [] 

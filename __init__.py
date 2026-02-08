@@ -161,7 +161,9 @@ async def get_tags(request):
             for f in recent:
                 meta = get_image_metadata(os.path.join(path, f))
                 if meta:
-                    models.update(meta['models']); loras.update(meta['loras'])
+                    models.update(meta['models'])
+                    loras.update(meta['loras'])
+
     return web.json_response({"models": sorted(list(models)), "loras": sorted(list(loras))})
 
 # Register Routes
