@@ -1,167 +1,303 @@
 import { app } from "../../scripts/app.js";
+import { FolderSelector } from "./folderSelector.js";
 
 app.registerExtension({
-  name: "Comfymeister.WorkflowHistory",
-  
+  name: "DefinitelyNotHuman.AssetManager",
   async init() {
-    // Register the sidebar tab using the official Extension API
+    const link = document.createElement("link");
+    link.rel = "stylesheet"; 
+    link.href = new URL("./style.css", import.meta.url).href;
+    document.head.appendChild(link);
+
     app.extensionManager.registerSidebarTab({
-      id: "comfymeister.history.tab",
+      id: "assetmanager.history.tab",
       icon: "pi pi-history",
       title: "History",
       type: "custom",
       render: (el) => {
+        let showFavorites = false;
+        let activeTab = "all";
+        let activeUtility = "all";
+        let customFolderCount = 0;
+
         el.innerHTML = `
-          <div style="display: flex; flex-direction: column; height: 100%; padding: 12px; gap: 10px; font-family: sans-serif; color: #eee;">
-            
-            <section style="display: flex; flex-direction: column; gap: 8px; flex-shrink: 0;">
-                <button id="cm-refresh" class="comfy-btn" style="width: 100%; font-weight: bold; background: #3a3a3a; border: 1px solid #444;">🔄 Refresh Library</button>
-                
-                <div style="display: flex; flex-direction: column; gap: 6px;">
-                    <input id="cm-search" type="text" placeholder="Search filenames..." class="comfy-input" style="width: 100%;" />
-                    
-                    <div style="display: grid; grid-template-columns: 1fr 1fr; gap: 4px;">
-                        <select id="cm-utility-select" class="comfy-input" style="font-size: 11px; width: 100%; background: #222;">
-                            <option value="all">All Utility</option>
-                            <option value="generation">Generations (Workflows)</option>
-                            <option value="input">Static Assets (Inputs)</option>
-                        </select>
-                        <select id="cm-model-select" class="comfy-input" style="font-size: 11px; width: 100%;"><option value="all">All Models</option></select>
-                    </div>
-                    <select id="cm-lora-select" class="comfy-input" style="font-size: 11px; width: 100%;"><option value="all">All LoRAs</option></select>
+          <div class="cm-sidebar-content">
+            <header class="cm-top-nav">
+                <div class="cm-brand">
+                    <span class="pi pi-folder cm-brand-icon"></span>
+                    <span class="cm-brand-title">Assets Manager</span>
+                    <span class="cm-version-badge">v1.0.8</span>
                 </div>
+                <nav class="cm-nav-tabs">
+                    <button class="cm-nav-btn active" data-tab="all">All</button>
+                    <button class="cm-nav-btn" data-tab="input">Inputs</button>
+                    <button class="cm-nav-btn" data-tab="output">Outputs</button>
+                    <button class="cm-nav-btn" data-tab="custom">Custom</button>
+                    <button id="cm-settings-toggle" class="cm-icon-only-btn"><span class="pi pi-cog"></span></button>
+                </nav>
+            </header>
 
-                <button id="cm-toggle-advanced" class="comfy-btn" style="width: 100%; font-size: 11px; padding: 4px; opacity: 0.7; background: transparent; border: 1px dashed #444;">
-                    ⚙️ Manage Folders & Safety
-                </button>
+            <div class="cm-search-container">
+                <div class="cm-search-wrapper">
+                    <span class="pi pi-search cm-search-icon"></span>
+                    <input id="cm-search" type="text" placeholder="Search assets..." class="cm-search-input" />
+                </div>
+                <div class="cm-action-buttons">
+                    <button id="cm-refresh" class="cm-tool-btn" title="Refresh"><span class="pi pi-filter"></span></button>
+                    <button id="cm-sort" class="cm-tool-btn"><span class="pi pi-sort-alt"></span></button>
+                    <button id="cm-fav-toggle" class="cm-tool-btn"><span class="pi pi-bookmark"></span></button>
+                </div>
+            </div>
+
+            <div class="cm-status-line">
+                <span id="cm-asset-stats" class="cm-stats-text">assets: --/-- | All</span>
+                <div id="cm-active-chip" class="cm-filter-chip hidden">
+                    Scope: <span id="cm-chip-val">custom</span>
+                    <span class="pi pi-times cm-chip-close"></span>
+                </div>
+            </div>
+
+            <section id="cm-advanced-panel" class="cm-advanced-panel">
+              <div class="cm-settings-group">
+                <label class="cm-settings-label">Output Directory</label>
+                <div class="cm-settings-row">
+                  <input id="cm-output-path" type="text" placeholder="Default: ComfyUI output folder" class="comfy-input" />
+                  <button id="cm-output-browse-btn" class="comfy-btn comfy-btn-secondary">📂</button>
+                  <button id="cm-output-save-btn" class="comfy-btn comfy-btn-primary">Save</button>
+                </div>
+              </div>
+              <hr class="cm-settings-divider" />
+              <div class="cm-settings-group">
+                <label class="cm-settings-label">Custom Folders</label>
+                <div id="cm-folder-list" class="cm-folder-list"></div>
+                <div class="cm-add-folder-row">
+                  <input id="cm-new-path" type="text" placeholder="Add custom path..." class="comfy-input" />
+                  <button id="cm-browse-btn" class="comfy-btn comfy-btn-secondary">📂</button>
+                  <button id="cm-add-btn" class="comfy-btn comfy-btn-primary">+</button>
+                </div>
+              </div>
             </section>
 
-            <section id="cm-advanced-panel" style="display: none; flex-direction: column; gap: 8px; background: #1a1a1a; padding: 10px; border-radius: 6px; border: 1px solid #333; flex-shrink: 0;">
-              <div style="font-weight: bold; font-size: 10px; color: #888; text-transform: uppercase;">Scan Locations</div>
-              <div id="cm-folder-list" style="display: flex; flex-direction: column; gap: 4px; font-size: 10px; max-height: 100px; overflow-y: auto; background: #0c0c0c; padding: 8px; border-radius: 4px;">
-                </div>
+            <section id="cm-container" class="cm-asset-grid"></section>
+          </div>`;
 
-              <div style="display: flex; gap: 4px;">
-                <input id="cm-new-path" type="text" placeholder="Add path..." class="comfy-input" style="flex: 1; font-size: 10px;" />
-                <button id="cm-add-btn" class="comfy-btn" style="padding: 1px 8px;">+</button>
-              </div>
-              
-              <div style="border-top: 1px solid #333; padding-top: 6px;">
-                <label style="font-size: 11px; cursor:pointer; display: flex; align-items: center; gap: 6px;">
-                    <input id="cm-nsfw" type="checkbox" checked /> 🔞 Hide NSFW Content
-                </label>
-              </div>
-            </section>
+        // Context menu helper
+        let activeContextMenu = null;
+        const dismissContextMenu = () => {
+            if (activeContextMenu) {
+                activeContextMenu.remove();
+                activeContextMenu = null;
+            }
+        };
+        document.addEventListener("click", dismissContextMenu);
+        document.addEventListener("contextmenu", dismissContextMenu);
 
-            <section id="cm-container" style="flex-grow: 1; overflow-y: auto; display: grid; grid-template-columns: 1fr 1fr; gap: 8px; align-content: start; padding-right: 4px;">
-              </section>
-          </div>
-        `;
+        const showContextMenu = (e, file) => {
+            e.preventDefault();
+            e.stopPropagation();
+            dismissContextMenu();
 
+            const menu = document.createElement("div");
+            menu.className = "cm-context-menu";
+
+            // Open in external viewer
+            const openBtn = document.createElement("button");
+            openBtn.className = "cm-context-menu-item";
+            openBtn.innerHTML = `<span class="pi pi-external-link"></span> Open in external viewer`;
+            openBtn.onclick = async (ev) => {
+                ev.stopPropagation();
+                dismissContextMenu();
+                await fetch("/dnh-assetmanager/open", {
+                    method: "POST",
+                    headers: { "Content-Type": "application/json" },
+                    body: JSON.stringify({ path: file.full_path })
+                });
+            };
+            menu.appendChild(openBtn);
+
+            // Separator
+            const sep = document.createElement("div");
+            sep.className = "cm-context-menu-separator";
+            menu.appendChild(sep);
+
+            // Delete
+            const deleteBtn = document.createElement("button");
+            deleteBtn.className = "cm-context-menu-item cm-danger";
+            deleteBtn.innerHTML = `<span class="pi pi-trash"></span> Delete`;
+            deleteBtn.onclick = async (ev) => {
+                ev.stopPropagation();
+                dismissContextMenu();
+                if (!confirm(`Delete "${file.filename}"? This cannot be undone.`)) return;
+                const res = await fetch("/dnh-assetmanager/delete", {
+                    method: "POST",
+                    headers: { "Content-Type": "application/json" },
+                    body: JSON.stringify({ path: file.full_path })
+                });
+                if (res.ok) update();
+            };
+            menu.appendChild(deleteBtn);
+
+            document.body.appendChild(menu);
+            activeContextMenu = menu;
+
+            // Position: keep within viewport
+            const rect = menu.getBoundingClientRect();
+            let x = e.clientX;
+            let y = e.clientY;
+            if (x + rect.width > window.innerWidth) x = window.innerWidth - rect.width - 4;
+            if (y + rect.height > window.innerHeight) y = window.innerHeight - rect.height - 4;
+            menu.style.left = `${x}px`;
+            menu.style.top = `${y}px`;
+        };
+
+        let activeFolderSelector = null;
+        const folderSelector = new FolderSelector((path) => {
+          if (activeFolderSelector === "output") {
+            el.querySelector("#cm-output-path").value = path;
+          } else {
+            el.querySelector("#cm-new-path").value = path;
+          }
+        });
         const container = el.querySelector("#cm-container");
-        const advancedPanel = el.querySelector("#cm-advanced-panel");
-        const folderList = el.querySelector("#cm-folder-list");
-        const utilitySelect = el.querySelector("#cm-utility-select");
-        const modelSelect = el.querySelector("#cm-model-select");
-        const loraSelect = el.querySelector("#cm-lora-select");
+        const statsText = el.querySelector("#cm-asset-stats");
+        const chip = el.querySelector("#cm-active-chip");
 
-        // Logic: Panel Toggling
-        el.querySelector("#cm-toggle-advanced").onclick = () => {
-            advancedPanel.style.display = advancedPanel.style.display === "none" ? "flex" : "none";
-        };
-
-        const updateFolderUI = async () => {
-            const config = await (await fetch('/comfymeister/config')).json();
-            let html = `
-                <label style="display:flex; align-items:center; gap:6px; cursor:pointer;"><input type="checkbox" class="cm-folder-toggle" value="output" checked /> /output</label>
-                <label style="display:flex; align-items:center; gap:6px; cursor:pointer;"><input type="checkbox" class="cm-folder-toggle" value="input" checked /> /input</label>
-            `;
-            config.custom_folders.forEach(f => {
-                const name = f.path.split(/[\\/]/).pop() || f.path;
-                html += `
-                  <div style="display:flex; justify-content:space-between; align-items:center;">
-                    <label title="${f.path}" style="display:flex; align-items:center; gap:6px; cursor:pointer; overflow:hidden; text-overflow:ellipsis; white-space:nowrap;">
-                        <input type="checkbox" class="cm-folder-toggle" value="${f.path}" checked /> ${name}
-                    </label>
-                    <span class="cm-del" data-path="${f.path}" style="color:#ff5555; cursor:pointer; font-weight:bold;">×</span>
-                  </div>`;
-            });
-            folderList.innerHTML = html;
-            
-            el.querySelectorAll(".cm-del").forEach(btn => btn.onclick = async () => {
-                await fetch('/comfymeister/folders', { method: 'POST', body: JSON.stringify({ action: 'remove', path: btn.dataset.path }) });
-                updateFolderUI(); update();
-            });
-            el.querySelectorAll(".cm-folder-toggle").forEach(i => i.onchange = update);
-        };
-
-        const updateTags = async () => {
-            const { models, loras } = await (await fetch('/comfymeister/tags')).json();
-            modelSelect.innerHTML = '<option value="all">All Models</option>' + models.map(m => `<option value="${m}">${m}</option>`).join("");
-            loraSelect.innerHTML = '<option value="all">All LoRAs</option>' + loras.map(l => `<option value="${l}">${l}</option>`).join("");
-        };
-
-        const update = async () => {
-            const folders = Array.from(el.querySelectorAll(".cm-folder-toggle:checked")).map(i => i.value).join(",");
-            const params = new URLSearchParams({
-                q: el.querySelector("#cm-search").value,
-                hide_nsfw: el.querySelector("#cm-nsfw").checked,
-                folders: folders,
-                utility: utilitySelect.value,
-                model_filter: modelSelect.value,
-                lora_filter: loraSelect.value
-            });
-            
-            container.innerHTML = `<div style="grid-column: span 2; text-align:center; padding: 20px; opacity: 0.5;">Scanning assets...</div>`;
-            const res = await fetch(`/comfymeister/history?${params.toString()}`);
-            const data = await res.json();
-            container.innerHTML = "";
-
-            data.files.forEach(f => {
+        // Render the custom folder list with remove buttons
+        const renderFolderList = (folders) => {
+            const listEl = el.querySelector("#cm-folder-list");
+            listEl.innerHTML = "";
+            folders.forEach(f => {
                 const item = document.createElement("div");
-                item.style = `
-                    cursor: pointer; aspect-ratio: 1; border: 1px solid #333; 
-                    border-radius: 6px; background: #111; overflow: hidden; 
-                    position: relative; transition: all 0.1s;
-                `;
-                item.onmouseenter = () => { item.style.borderColor = "#666"; item.style.transform = "scale(0.98)"; };
-                item.onmouseleave = () => { item.style.borderColor = "#333"; item.style.transform = "scale(1)"; };
-                
-                // Blueprint indicator for Generations
-                const badge = f.has_workflow ? `<div style="position:absolute; top:4px; right:4px; background:rgba(0,180,255,0.7); width:6px; height:6px; border-radius:50%;" title="Workflow Attached"></div>` : '';
-
-                item.innerHTML = `
-                    ${badge}
-                    <img src="${f.url}" style="width:100%; height:100%; object-fit:cover; display:block;" loading="lazy" />
-                `;
-                
-                item.onclick = async () => {
-                    const blob = await (await fetch(f.url)).blob();
-                    await app.handleFile(blob); // Core workflow injector
-                    app.extensionManager.toast.add({ 
-                        severity: f.has_workflow ? 'success' : 'info', 
-                        summary: f.has_workflow ? 'Workflow Restored' : 'Image Loaded', 
-                        life: 1500 
+                item.className = "cm-folder-item";
+                item.innerHTML = `<span>${f.path}</span>`;
+                const removeBtn = document.createElement("button");
+                removeBtn.className = "cm-folder-remove-btn";
+                removeBtn.innerHTML = `<span class="pi pi-times"></span>`;
+                removeBtn.title = "Remove folder";
+                removeBtn.onclick = async () => {
+                    await fetch("/dnh-assetmanager/folders", {
+                        method: "POST",
+                        headers: { "Content-Type": "application/json" },
+                        body: JSON.stringify({ action: "remove", path: f.path })
                     });
+                    await loadSettings();
+                    update();
                 };
-                container.appendChild(item);
+                item.appendChild(removeBtn);
+                listEl.appendChild(item);
             });
         };
 
-        el.querySelector("#cm-refresh").onclick = () => { updateTags(); update(); };
-        el.querySelector("#cm-add-btn").onclick = async () => {
-            const pathVal = el.querySelector("#cm-new-path").value;
-            if (pathVal) {
-                await fetch('/comfymeister/folders', { method: 'POST', body: JSON.stringify({ action: 'add', path: pathVal }) });
-                el.querySelector("#cm-new-path").value = "";
-                await updateFolderUI(); update();
+        // Load config to populate settings and get custom folder count
+        const loadSettings = async () => {
+            const res = await fetch("/dnh-assetmanager/config");
+            const config = await res.json();
+            const folders = config.custom_folders || [];
+            customFolderCount = folders.length;
+            el.querySelector("#cm-output-path").value = config.output_path || "";
+            renderFolderList(folders);
+        };
+        loadSettings();
+
+        // UI Listeners
+        el.querySelector("#cm-browse-btn").onclick = () => { activeFolderSelector = "custom"; folderSelector.show(); };
+        el.querySelector("#cm-output-browse-btn").onclick = () => { activeFolderSelector = "output"; folderSelector.show(); };
+        el.querySelector("#cm-settings-toggle").onclick = () => {
+            el.querySelector("#cm-advanced-panel").classList.toggle("visible");
+            el.querySelector("#cm-settings-toggle").classList.toggle("active");
+        };
+
+        // Save output path setting
+        el.querySelector("#cm-output-save-btn").onclick = async () => {
+            const outputPath = el.querySelector("#cm-output-path").value.trim();
+            const res = await fetch("/dnh-assetmanager/settings", {
+                method: "POST",
+                headers: { "Content-Type": "application/json" },
+                body: JSON.stringify({ output_path: outputPath })
+            });
+            if (res.ok) {
+                update();
+            } else {
+                const err = await res.json();
+                alert(err.error || "Failed to save setting");
             }
         };
 
-        [utilitySelect, modelSelect, loraSelect, el.querySelector("#cm-nsfw")].forEach(i => i.onchange = update);
-        el.querySelector("#cm-search").oninput = update;
+        // Add custom folder
+        el.querySelector("#cm-add-btn").onclick = async () => {
+            const path = el.querySelector("#cm-new-path").value.trim();
+            if (!path) return;
+            const res = await fetch("/dnh-assetmanager/folders", {
+                method: "POST",
+                headers: { "Content-Type": "application/json" },
+                body: JSON.stringify({ action: "add", path })
+            });
+            if (res.ok) {
+                el.querySelector("#cm-new-path").value = "";
+                await loadSettings();
+                update();
+            }
+        };
 
-        updateFolderUI().then(() => updateTags().then(update));
+        // Tab Switching Logic
+        const tabLabels = { all: "All", input: "Inputs", output: "Outputs", custom: "Custom" };
+        el.querySelectorAll(".cm-nav-btn").forEach(btn => {
+            btn.onclick = () => {
+                el.querySelectorAll(".cm-nav-btn").forEach(b => b.classList.remove("active"));
+                btn.classList.add("active");
+                activeTab = btn.dataset.tab;
+                if (activeTab === "custom") {
+                    chip.classList.remove("hidden");
+                } else {
+                    chip.classList.add("hidden");
+                }
+                update();
+            };
+        });
+
+        const update = async () => {
+            // Custom tab with no folders: show empty state
+            if (activeTab === "custom" && customFolderCount === 0) {
+                container.innerHTML = `
+                    <div class="cm-empty-state">
+                        <span class="pi pi-folder-open cm-empty-icon"></span>
+                        <p class="cm-empty-text">No custom folders configured</p>
+                        <p class="cm-empty-hint">Click the <span class="pi pi-cog"></span> settings button to add custom paths.</p>
+                    </div>`;
+                statsText.textContent = `assets: 0/0 | Custom`;
+                return;
+            }
+
+            const params = new URLSearchParams({
+                q: el.querySelector("#cm-search").value,
+                tab: activeTab,
+                utility: activeUtility,
+                favorites_only: showFavorites,
+            });
+
+            const res = await fetch(`/dnh-assetmanager/history?${params.toString()}`);
+            const data = await res.json();
+            container.innerHTML = "";
+            statsText.textContent = `assets: ${data.files.length}/${data.files.length} | ${tabLabels[activeTab] || activeTab}`;
+
+            data.files.forEach(f => {
+                const card = document.createElement("div");
+                card.className = "cm-card";
+                card.innerHTML = `
+                    ${f.is_favorite ? `<div class="cm-star-badge">⭐</div>` : ''}
+                    <img src="${f.url}" loading="lazy" />
+                `;
+                card.onclick = async () => {
+                    const blob = await (await fetch(f.url)).blob();
+                    await app.handleFile(blob);
+                };
+                card.oncontextmenu = (e) => showContextMenu(e, f);
+                container.appendChild(card);
+            });
+        };
+
+        el.querySelector("#cm-search").oninput = update;
+        update();
       }
     });
   }

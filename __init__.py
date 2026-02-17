@@ -1,46 +1,47 @@
 import os
 import json
 import struct
+import subprocess
+import sys
 import urllib.parse
 from server import PromptServer
 from aiohttp import web
 import folder_paths
 
-# 1. Setup paths and load filters/config
+# CRITICAL: Setup paths and load filters/config
 EXTENSION_DIR = os.path.dirname(os.path.realpath(__file__))
 FILTER_FILE = os.path.join(EXTENSION_DIR, "filters.json")
 CONFIG_FILE = os.path.join(EXTENSION_DIR, "config.json")
 
 def load_nsfw_terms():
-    """Loads restricted terms from filters.json."""
     try:
         if os.path.exists(FILTER_FILE):
             with open(FILTER_FILE, "r") as f:
                 data = json.load(f)
                 return set(data.get("nsfw_terms", []))
-    except Exception as e:
-        print(f"GenHistory: Error loading filters.json: {e}")
+    except: pass
     return set()
 
 def load_config():
-    """Loads persistent custom folder configurations."""
+    defaults = {"custom_folders": [], "favorites": [], "output_path": ""}
     if os.path.exists(CONFIG_FILE):
         try:
             with open(CONFIG_FILE, "r") as f:
-                return json.load(f)
-        except:
-            pass
-    return {"custom_folders": []}
+                data = json.load(f)
+                for key, val in defaults.items():
+                    if key not in data:
+                        data[key] = val
+                return data
+        except: pass
+    return dict(defaults)
 
 def save_config(config):
-    """Saves folder configuration to disk."""
     with open(CONFIG_FILE, "w") as f:
         json.dump(config, f)
 
 NSFW_TERMS = load_nsfw_terms()
 
 def get_image_metadata(full_path):
-    """Extracts workflow prompt and identifies Models/LoRAs from PNG/WebP metadata."""
     try:
         with open(full_path, "rb") as f:
             signature = f.read(8)
@@ -54,127 +55,170 @@ def get_image_metadata(full_path):
                     key, value = data.split(b"\x00", 1)
                     if key == b"prompt":
                         prompt = json.loads(value)
-                        # Extract class types for models and specific lora names
                         models = [v['inputs']['ckpt_name'] for k, v in prompt.items() if 'ckpt_name' in v.get('inputs', {})]
                         loras = [v['inputs']['lora_name'] for k, v in prompt.items() if 'lora_name' in v.get('inputs', {})]
                         return {"prompt": prompt, "models": models, "loras": loras}
-                else:
-                    f.seek(length, 1)
-                f.read(4) # Skip CRC
-    except:
-        pass
+                else: f.seek(length, 1)
+                f.read(4)
+    except: pass
     return None
 
 async def serve_ext_file(request):
-    """Proxy handler to serve files from authorized absolute paths."""
     file_path = request.query.get("path")
-    if not file_path or not os.path.exists(file_path):
-        return web.Response(status=404)
-    
+    if not file_path or not os.path.exists(file_path): return web.Response(status=404)
     config = load_config()
-    allowed_dirs = [folder_paths.get_input_directory(), folder_paths.get_output_directory()]
-    allowed_dirs.extend([f["path"] for f in config["custom_folders"]])
-    
-    # Security: Ensure the file is inside an authorized directory
-    if not any(os.path.abspath(file_path).startswith(os.path.abspath(d)) for d in allowed_dirs):
-        return web.Response(status=403, text="Access Denied")
-
+    output_dir = config.get("output_path") or folder_paths.get_output_directory()
+    allowed_dirs = [folder_paths.get_input_directory(), output_dir, folder_paths.get_output_directory()] + [f["path"] for f in config["custom_folders"]]
+    if not any(os.path.abspath(file_path).startswith(os.path.abspath(d)) for d in allowed_dirs): return web.Response(status=403)
     return web.FileResponse(file_path)
 
 async def get_history(request):
-    """API to fetch assets filtered by utility (Generation vs Input)."""
     params = request.query
-    query = params.get("q", "").lower()
-    hide_nsfw = params.get("hide_nsfw", "true").lower() == "true"
-    enabled_folders = params.get("folders", "").split(",")
-    target_model = params.get("model_filter", "all")
-    target_lora = params.get("lora_filter", "all")
-    utility_type = params.get("utility", "all") # "all", "generation", "input"
-    
+    query, hide_nsfw = params.get("q", "").lower(), params.get("hide_nsfw", "true") == "true"
+    tab = params.get("tab", "all")
+    utility_type, favorites_only = params.get("utility", "all"), params.get("favorites_only") == "true"
+    target_model, target_lora = params.get("model_filter", "all"), params.get("lora_filter", "all")
+
     config = load_config()
-    scan_targets = [
-        {"id": "input", "path": folder_paths.get_input_directory()},
-        {"id": "output", "path": folder_paths.get_output_directory()}
-    ]
-    for custom in config["custom_folders"]:
-        scan_targets.append({"id": custom["path"], "path": custom["path"]})
+    favorites = set(config.get("favorites", []))
+
+    input_dir = folder_paths.get_input_directory()
+    output_dir = config.get("output_path") or folder_paths.get_output_directory()
+    custom_folders = config.get("custom_folders", [])
+
+    scan_targets = []
+    if tab == "all":
+        scan_targets.append({"id": "input", "path": input_dir})
+        scan_targets.append({"id": "output", "path": output_dir})
+        for custom in custom_folders:
+            scan_targets.append({"id": custom["path"], "path": custom["path"]})
+    elif tab == "input":
+        scan_targets.append({"id": "input", "path": input_dir})
+    elif tab == "output":
+        scan_targets.append({"id": "output", "path": output_dir})
+    elif tab == "custom":
+        for custom in custom_folders:
+            scan_targets.append({"id": custom["path"], "path": custom["path"]})
 
     all_files = []
     for target in scan_targets:
-        if target["id"] in enabled_folders and os.path.exists(target["path"]):
-            for f in os.listdir(target["path"]):
-                if f.lower().endswith(('.png', '.webp')):
-                    all_files.append({"filename": f, "path": target["path"]})
+        if os.path.exists(target["path"]):
+            for root, _, files in os.walk(target["path"]):
+                for f in files:
+                    if f.lower().endswith(('.png', '.webp')): all_files.append({"filename": f, "path": root})
 
-    # Sort newest first
     all_files.sort(key=lambda x: os.path.getmtime(os.path.join(x['path'], x['filename'])), reverse=True)
-
-    filtered_files = []
+    filtered = []
     for entry in all_files:
-        full_path = os.path.join(entry['path'], entry['filename'])
+        full_path = os.path.normpath(os.path.join(entry['path'], entry['filename']))
+        is_fav = full_path in favorites
+        if favorites_only and not is_fav: continue
         if query and query not in entry['filename'].lower(): continue
-
         meta = get_image_metadata(full_path)
         has_workflow = meta is not None
-
-        # Filter by Utility
         if utility_type == "generation" and not has_workflow: continue
         if utility_type == "input" and has_workflow: continue
-
         if meta:
             if hide_nsfw and any(term in str(meta['prompt']).lower() for term in NSFW_TERMS): continue
             if target_model != "all" and target_model not in meta['models']: continue
             if target_lora != "all" and target_lora not in meta['loras']: continue
-        
-        filtered_files.append({
-            "filename": entry['filename'], 
-            "url": f"/cm-ext-view?path={urllib.parse.quote(full_path)}",
-            "has_workflow": has_workflow
-        })
-        if len(filtered_files) >= 60: break # Limit for UI grid performance
-                
-    return web.json_response({"files": filtered_files})
+        filtered.append({"filename": entry['filename'], "url": f"/cm-ext-view?path={urllib.parse.quote(full_path)}", "full_path": full_path, "has_workflow": has_workflow, "is_favorite": is_fav})
+        if len(filtered) >= 60: break
+    return web.json_response({"files": filtered})
 
 async def manage_folders(request):
-    """Adds or removes custom directory paths from the config."""
     data = await request.json()
     config = load_config()
     if data["action"] == "add" and os.path.isdir(data["path"]):
-        if not any(f["path"] == data["path"] for f in config["custom_folders"]):
-            config["custom_folders"].append({"path": data["path"]})
-    elif data["action"] == "remove":
-        config["custom_folders"] = [f for f in config["custom_folders"] if f["path"] != data["path"]]
-    
+        if not any(f["path"] == data["path"] for f in config["custom_folders"]): config["custom_folders"].append({"path": data["path"]})
+    elif data["action"] == "remove": config["custom_folders"] = [f for f in config["custom_folders"] if f["path"] != data["path"]]
     save_config(config)
     return web.json_response(config)
 
-async def get_tags(request):
-    """Scans recent images to populate Model and LoRA dropdowns."""
-    models, loras = set(), set()
+async def toggle_favorite(request):
+    data = await request.json()
+    path = data.get("path")
     config = load_config()
-    paths = [folder_paths.get_input_directory(), folder_paths.get_output_directory()]
-    paths.extend([f["path"] for f in config["custom_folders"]])
-    
+    if path in config["favorites"]: config["favorites"].remove(path)
+    else: config["favorites"].append(path)
+    save_config(config)
+    return web.json_response({"status": "success"})
+
+async def delete_file(request):
+    data = await request.json()
+    path = data.get("path")
+    if os.path.exists(path):
+        os.remove(path)
+        return web.json_response({"status": "success"})
+    return web.json_response({"status": "error"}, status=404)
+
+async def get_tags(request):
+    loras = set()
+    all_models = folder_paths.get_filename_list("checkpoints")
+    config = load_config()
+    paths = [folder_paths.get_input_directory(), folder_paths.get_output_directory()] + [f["path"] for f in config["custom_folders"]]
     for path in paths:
         if os.path.exists(path):
-            recent = sorted(os.listdir(path), key=lambda x: os.path.getmtime(os.path.join(path, x)), reverse=True)[:50]
-            for f in recent:
-                meta = get_image_metadata(os.path.join(path, f))
-                if meta:
-                    models.update(meta['models'])
-                    loras.update(meta['loras'])
+            for root, _, files in os.walk(path):
+                recent = sorted(files, key=lambda x: os.path.getmtime(os.path.join(root, x)), reverse=True)[:50]
+                for f in recent:
+                    meta = get_image_metadata(os.path.join(root, f))
+                    if meta: loras.update(meta['loras'])
+    return web.json_response({"models": sorted(all_models), "loras": sorted(list(loras))})
 
-    return web.json_response({"models": sorted(list(models)), "loras": sorted(list(loras))})
+async def get_subdirectories(request):
+    path = request.query.get("path", "")
+    if not path: return web.json_response({"dirs": ["/"] if os.name != 'nt' else ["C:\\"]})
+    try:
+        if os.path.isdir(path):
+            dirs = [d for d in os.listdir(path) if os.path.isdir(os.path.join(path, d))]
+            return web.json_response({"dirs": sorted(dirs), "current": path})
+    except: return web.json_response({"dirs": []})
+    return web.json_response({"dirs": []})
 
-# Register Routes
+async def update_settings(request):
+    data = await request.json()
+    config = load_config()
+    if "output_path" in data:
+        path = data["output_path"].strip()
+        if path and not os.path.isdir(path):
+            return web.json_response({"error": "Directory does not exist"}, status=400)
+        config["output_path"] = path
+    save_config(config)
+    return web.json_response(config)
+
+async def open_file(request):
+    data = await request.json()
+    path = data.get("path")
+    if not path or not os.path.exists(path):
+        return web.json_response({"status": "error", "message": "File not found"}, status=404)
+    config = load_config()
+    output_dir = config.get("output_path") or folder_paths.get_output_directory()
+    allowed_dirs = [folder_paths.get_input_directory(), output_dir, folder_paths.get_output_directory()] + [f["path"] for f in config["custom_folders"]]
+    if not any(os.path.abspath(path).startswith(os.path.abspath(d)) for d in allowed_dirs):
+        return web.json_response({"status": "error", "message": "Access denied"}, status=403)
+    try:
+        if sys.platform == "win32":
+            os.startfile(path)
+        elif sys.platform == "darwin":
+            subprocess.Popen(["open", path])
+        else:
+            subprocess.Popen(["xdg-open", path])
+        return web.json_response({"status": "success"})
+    except Exception as e:
+        return web.json_response({"status": "error", "message": str(e)}, status=500)
+
 PromptServer.instance.app.add_routes([
-    web.get("/comfymeister/history", get_history),
-    web.get("/comfymeister/tags", get_tags),
-    web.get("/comfymeister/config", lambda r: web.json_response(load_config())),
-    web.post("/comfymeister/folders", manage_folders),
+    web.get("/dnh-assetmanager/history", get_history),
+    web.get("/dnh-assetmanager/tags", get_tags),
+    web.get("/dnh-assetmanager/subdirs", get_subdirectories),
+    web.get("/dnh-assetmanager/config", lambda r: web.json_response(load_config())),
+    web.post("/dnh-assetmanager/settings", update_settings),
+    web.post("/dnh-assetmanager/folders", manage_folders),
+    web.post("/dnh-assetmanager/favorite", toggle_favorite),
+    web.post("/dnh-assetmanager/delete", delete_file),
+    web.post("/dnh-assetmanager/open", open_file),
     web.get("/cm-ext-view", serve_ext_file)
 ])
 
-WEB_DIRECTORY = "./js"
-NODE_CLASS_MAPPINGS = {}
-NODE_DISPLAY_NAME_MAPPINGS = {}
+WEB_DIRECTORY, NODE_CLASS_MAPPINGS, NODE_DISPLAY_NAME_MAPPINGS = "./js", {}, {}

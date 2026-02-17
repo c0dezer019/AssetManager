@@ -1,8 +1,8 @@
 [project]
 name = "assetmanager"
 description = ""
-version = "1.0.0"
-license = {file = "LICENSE"} 
+version = "2.0.0"
+license = {file = "LICENSE"}
 
 [project.urls]
 Repository = "https://github.com/c0dezer019/AssetManager"
@@ -12,6 +12,6 @@ Documentation = "https://github.com/c0dezer019/AssetManager/wiki"
 
 [tool.comfy]
 PublisherId = "c0dezer019"
-DisplayName = "AssetManager"
+DisplayName = "Asset Manager"
 Icon = ""
-includes = [] 
+includes = []
