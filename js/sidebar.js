@@ -19,6 +19,8 @@ app.registerExtension({
         let activeTab = "all";
         let activeUtility = "all";
         let customFolderCount = 0;
+        let sortBy = "date";
+        let workflowOnly = false;
 
         el.innerHTML = `
           <div class="cm-sidebar-content">
@@ -43,18 +45,16 @@ app.registerExtension({
                     <input id="cm-search" type="text" placeholder="Search assets..." class="cm-search-input" />
                 </div>
                 <div class="cm-action-buttons">
-                    <button id="cm-refresh" class="cm-tool-btn" title="Refresh"><span class="pi pi-filter"></span></button>
-                    <button id="cm-sort" class="cm-tool-btn"><span class="pi pi-sort-alt"></span></button>
-                    <button id="cm-fav-toggle" class="cm-tool-btn"><span class="pi pi-bookmark"></span></button>
+                    <button id="cm-filter" class="cm-tool-btn" title="Filter options"><span class="pi pi-filter"></span></button>
+                    <button id="cm-sort" class="cm-tool-btn" title="Sort by date"><span class="pi pi-sort-alt"></span></button>
+                    <button id="cm-workflow-filter" class="cm-tool-btn" title="Show only assets with workflows"><span class="pi pi-sitemap"></span></button>
+                    <button id="cm-fav-toggle" class="cm-tool-btn" title="Show favorites only"><span class="pi pi-bookmark"></span></button>
                 </div>
             </div>
 
             <div class="cm-status-line">
                 <span id="cm-asset-stats" class="cm-stats-text">assets: --/-- | All</span>
-                <div id="cm-active-chip" class="cm-filter-chip hidden">
-                    Scope: <span id="cm-chip-val">custom</span>
-                    <span class="pi pi-times cm-chip-close"></span>
-                </div>
+                <div id="cm-active-filters" class="cm-active-filters"></div>
             </div>
 
             <section id="cm-advanced-panel" class="cm-advanced-panel">
@@ -76,6 +76,41 @@ app.registerExtension({
                   <button id="cm-add-btn" class="comfy-btn comfy-btn-primary">+</button>
                 </div>
               </div>
+            </section>
+
+            <section id="cm-info-panel" class="cm-info-panel">
+              <div class="cm-info-panel-header">
+                <span class="cm-info-panel-title" id="cm-info-filename"></span>
+                <button class="cm-info-close-btn" id="cm-info-close"><span class="pi pi-times"></span></button>
+              </div>
+              <img id="cm-info-preview" class="cm-info-preview" src="" alt="" />
+              <div class="cm-info-file-meta" id="cm-info-file-meta"></div>
+              <div class="cm-info-field">
+                <label class="cm-info-label">Title</label>
+                <input id="cm-info-title" class="cm-info-input" type="text" placeholder="Image title..." />
+              </div>
+              <div class="cm-info-field">
+                <label class="cm-info-label">Description</label>
+                <textarea id="cm-info-description" class="cm-info-input" placeholder="Image description..." rows="2"></textarea>
+              </div>
+              <div class="cm-info-field">
+                <label class="cm-info-label">Tags</label>
+                <input id="cm-info-tags" class="cm-info-input" type="text" placeholder="Comma-separated tags..." />
+              </div>
+              <div class="cm-info-field">
+                <label class="cm-info-label">Rating</label>
+                <div class="cm-info-rating" id="cm-info-rating">
+                  <button class="cm-info-star" data-val="1">★</button>
+                  <button class="cm-info-star" data-val="2">★</button>
+                  <button class="cm-info-star" data-val="3">★</button>
+                  <button class="cm-info-star" data-val="4">★</button>
+                  <button class="cm-info-star" data-val="5">★</button>
+                </div>
+              </div>
+              <div class="cm-info-actions">
+                <button id="cm-info-save" class="cm-info-save-btn">Save Metadata</button>
+              </div>
+              <div id="cm-info-saved-msg" class="cm-info-saved-msg">Saved!</div>
             </section>
 
             <section id="cm-container" class="cm-asset-grid"></section>
@@ -100,6 +135,18 @@ app.registerExtension({
             const menu = document.createElement("div");
             menu.className = "cm-context-menu";
 
+            // Load workflow
+            const loadBtn = document.createElement("button");
+            loadBtn.className = "cm-context-menu-item";
+            loadBtn.innerHTML = `<span class="pi pi-download"></span> Load workflow`;
+            loadBtn.onclick = async (ev) => {
+                ev.stopPropagation();
+                dismissContextMenu();
+                const blob = await (await fetch(file.url)).blob();
+                await app.handleFile(blob);
+            };
+            menu.appendChild(loadBtn);
+
             // Open in external viewer
             const openBtn = document.createElement("button");
             openBtn.className = "cm-context-menu-item";
@@ -114,6 +161,27 @@ app.registerExtension({
                 });
             };
             menu.appendChild(openBtn);
+
+            // Edit metadata
+            if (file.file_type === "PNG") {
+                const editBtn = document.createElement("button");
+                editBtn.className = "cm-context-menu-item";
+                editBtn.innerHTML = `<span class="pi pi-pencil"></span> Edit metadata`;
+                editBtn.onclick = (ev) => {
+                    ev.stopPropagation();
+                    dismissContextMenu();
+                    el.querySelectorAll(".cm-card").forEach(c => c.classList.remove("selected"));
+                    // Find and highlight the card for this file
+                    const cards = el.querySelectorAll(".cm-card");
+                    cards.forEach(c => {
+                        if (c.querySelector("img")?.src?.includes(encodeURIComponent(file.full_path))) {
+                            c.classList.add("selected");
+                        }
+                    });
+                    openInfoPanel(file);
+                };
+                menu.appendChild(editBtn);
+            }
 
             // Separator
             const sep = document.createElement("div");
@@ -158,9 +226,146 @@ app.registerExtension({
             el.querySelector("#cm-new-path").value = path;
           }
         });
+        // ─── Info Panel State & Logic ───
+        const infoPanel = el.querySelector("#cm-info-panel");
+        const infoFilename = el.querySelector("#cm-info-filename");
+        const infoPreview = el.querySelector("#cm-info-preview");
+        const infoFileMeta = el.querySelector("#cm-info-file-meta");
+        const infoTitle = el.querySelector("#cm-info-title");
+        const infoDesc = el.querySelector("#cm-info-description");
+        const infoTags = el.querySelector("#cm-info-tags");
+        const infoRating = el.querySelector("#cm-info-rating");
+        const infoSave = el.querySelector("#cm-info-save");
+        const infoSavedMsg = el.querySelector("#cm-info-saved-msg");
+        let selectedFile = null;
+        let currentRating = 0;
+
+        const setRatingDisplay = (val) => {
+            currentRating = val;
+            infoRating.querySelectorAll(".cm-info-star").forEach(star => {
+                star.classList.toggle("active", parseInt(star.dataset.val) <= val);
+            });
+        };
+
+        infoRating.querySelectorAll(".cm-info-star").forEach(star => {
+            star.onclick = () => {
+                const val = parseInt(star.dataset.val);
+                setRatingDisplay(val === currentRating ? 0 : val);
+            };
+        });
+
+        const openInfoPanel = (file) => {
+            selectedFile = file;
+            infoFilename.textContent = file.filename;
+            infoFilename.title = file.filename;
+            infoPreview.src = file.url;
+            infoFileMeta.innerHTML = `<span>${file.file_type}</span><span>${file.file_size_formatted}</span>`;
+            infoTitle.value = file.asset_title || "";
+            infoDesc.value = file.asset_description || "";
+            infoTags.value = file.asset_tags || "";
+            setRatingDisplay(parseInt(file.asset_rating) || 0);
+            infoSavedMsg.classList.remove("show");
+            infoPanel.classList.add("visible");
+
+            // Highlight selected card
+            el.querySelectorAll(".cm-card").forEach(c => c.classList.remove("selected"));
+        };
+
+        const closeInfoPanel = () => {
+            selectedFile = null;
+            infoPanel.classList.remove("visible");
+            el.querySelectorAll(".cm-card").forEach(c => c.classList.remove("selected"));
+        };
+
+        el.querySelector("#cm-info-close").onclick = closeInfoPanel;
+
+        infoSave.onclick = async () => {
+            if (!selectedFile) return;
+            infoSave.disabled = true;
+            infoSave.textContent = "Saving...";
+            try {
+                const res = await fetch("/dnh-assetmanager/metadata", {
+                    method: "POST",
+                    headers: { "Content-Type": "application/json" },
+                    body: JSON.stringify({
+                        path: selectedFile.full_path,
+                        title: infoTitle.value,
+                        description: infoDesc.value,
+                        tags: infoTags.value,
+                        rating: currentRating > 0 ? String(currentRating) : "",
+                    })
+                });
+                if (res.ok) {
+                    infoSavedMsg.classList.add("show");
+                    setTimeout(() => infoSavedMsg.classList.remove("show"), 2000);
+                    // Update the cached file data
+                    selectedFile.asset_title = infoTitle.value;
+                    selectedFile.asset_description = infoDesc.value;
+                    selectedFile.asset_tags = infoTags.value;
+                    selectedFile.asset_rating = currentRating > 0 ? String(currentRating) : "";
+                } else {
+                    const err = await res.json();
+                    alert(err.error || "Failed to save metadata");
+                }
+            } finally {
+                infoSave.disabled = false;
+                infoSave.textContent = "Save Metadata";
+            }
+        };
+
         const container = el.querySelector("#cm-container");
         const statsText = el.querySelector("#cm-asset-stats");
-        const chip = el.querySelector("#cm-active-chip");
+        const activeFiltersEl = el.querySelector("#cm-active-filters");
+
+        // Track available tags for filter menu
+        let availableModels = [];
+        let availableLoras = [];
+        let activeModelFilters = new Set();
+        let activeLoraFilters = new Set();
+        let hideNsfw = true;
+
+        // Fetch available filter tags from backend
+        const loadTags = async () => {
+            try {
+                const res = await fetch("/dnh-assetmanager/tags");
+                const data = await res.json();
+                availableModels = data.models || [];
+                availableLoras = data.loras || [];
+            } catch (e) {
+                console.warn("Failed to load tags:", e);
+            }
+        };
+        loadTags();
+
+        // Render active filter chips
+        const renderActiveFilters = () => {
+            activeFiltersEl.innerHTML = "";
+            const filters = [];
+            if (activeUtility !== "all") filters.push({ label: `Type: ${activeUtility}`, clear: () => { activeUtility = "all"; } });
+            activeModelFilters.forEach(m => {
+                const shortName = m.split(/[\\/]/).pop();
+                filters.push({ label: `Model: ${shortName}`, clear: () => { activeModelFilters.delete(m); } });
+            });
+            activeLoraFilters.forEach(l => {
+                const shortName = l.split(/[\\/]/).pop();
+                filters.push({ label: `LoRA: ${shortName}`, clear: () => { activeLoraFilters.delete(l); } });
+            });
+            if (!hideNsfw) filters.push({ label: "NSFW: shown", clear: () => { hideNsfw = true; } });
+            if (showFavorites) filters.push({ label: "Favorites", clear: () => { showFavorites = false; el.querySelector("#cm-fav-toggle").classList.remove("active"); } });
+            if (workflowOnly) filters.push({ label: "Workflows only", clear: () => { workflowOnly = false; el.querySelector("#cm-workflow-filter").classList.remove("active"); } });
+
+            filters.forEach(f => {
+                const chip = document.createElement("div");
+                chip.className = "cm-filter-chip";
+                chip.innerHTML = `${f.label} <span class="pi pi-times cm-chip-close"></span>`;
+                chip.querySelector(".cm-chip-close").onclick = () => { f.clear(); renderActiveFilters(); update(); };
+                activeFiltersEl.appendChild(chip);
+            });
+
+            // Update filter button active state
+            const hasFilters = activeUtility !== "all" || activeModelFilters.size > 0 || activeLoraFilters.size > 0 || !hideNsfw;
+            el.querySelector("#cm-filter").classList.toggle("active", hasFilters);
+        };
 
         // Render the custom folder list with remove buttons
         const renderFolderList = (folders) => {
@@ -246,11 +451,6 @@ app.registerExtension({
                 el.querySelectorAll(".cm-nav-btn").forEach(b => b.classList.remove("active"));
                 btn.classList.add("active");
                 activeTab = btn.dataset.tab;
-                if (activeTab === "custom") {
-                    chip.classList.remove("hidden");
-                } else {
-                    chip.classList.add("hidden");
-                }
                 update();
             };
         });
@@ -273,8 +473,15 @@ app.registerExtension({
                 tab: activeTab,
                 utility: activeUtility,
                 favorites_only: showFavorites,
+                sort: sortBy,
+                workflow_only: workflowOnly,
+                hide_nsfw: hideNsfw,
+                model_filter: activeModelFilters.size > 0 ? [...activeModelFilters].join(",") : "all",
+                lora_filter: activeLoraFilters.size > 0 ? [...activeLoraFilters].join(",") : "all",
             });
 
+            closeInfoPanel();
+            renderActiveFilters();
             const res = await fetch(`/dnh-assetmanager/history?${params.toString()}`);
             const data = await res.json();
             container.innerHTML = "";
@@ -283,9 +490,22 @@ app.registerExtension({
             data.files.forEach(f => {
                 const card = document.createElement("div");
                 card.className = "cm-card";
+
+                const truncName = f.filename.length > 20
+                    ? f.filename.substring(0, 17) + "..."
+                    : f.filename;
+
                 card.innerHTML = `
                     ${f.is_favorite ? `<div class="cm-star-badge">⭐</div>` : ''}
+                    ${f.has_workflow ? `<div class="cm-workflow-badge" title="Has embedded workflow"><span class="pi pi-sitemap"></span></div>` : ''}
                     <img src="${f.url}" loading="lazy" />
+                    <div class="cm-card-overlay">
+                        <span class="cm-overlay-name" title="${f.filename}">${truncName}</span>
+                        <div class="cm-overlay-meta">
+                            <span class="cm-overlay-type">${f.file_type}</span>
+                            <span class="cm-overlay-size">${f.file_size_formatted}</span>
+                        </div>
+                    </div>
                 `;
                 card.onclick = async () => {
                     const blob = await (await fetch(f.url)).blob();
@@ -297,6 +517,155 @@ app.registerExtension({
         };
 
         el.querySelector("#cm-search").oninput = update;
+
+        // Filter menu
+        el.querySelector("#cm-filter").onclick = (e) => {
+            e.stopPropagation();
+            dismissContextMenu();
+
+            const menu = document.createElement("div");
+            menu.className = "cm-context-menu";
+
+            // Section: Utility type
+            const utilLabel = document.createElement("div");
+            utilLabel.className = "cm-context-menu-label";
+            utilLabel.textContent = "Asset Type";
+            menu.appendChild(utilLabel);
+
+            [{ value: "all", label: "All types" }, { value: "generation", label: "Generated (has workflow)" }, { value: "input", label: "Input (no workflow)" }].forEach(opt => {
+                const btn = document.createElement("button");
+                btn.className = "cm-context-menu-item" + (activeUtility === opt.value ? " cm-active" : "");
+                btn.innerHTML = `${activeUtility === opt.value ? '<span class="pi pi-check"></span> ' : '<span style="width:16px;display:inline-block"></span> '}${opt.label}`;
+                btn.onclick = (ev) => { ev.stopPropagation(); activeUtility = opt.value; dismissContextMenu(); update(); };
+                menu.appendChild(btn);
+            });
+
+            // Helper to build a multi-select checkbox menu item
+            const makeCheckItem = (label, isChecked, onToggle, title) => {
+                const btn = document.createElement("button");
+                btn.className = "cm-context-menu-item" + (isChecked ? " cm-active" : "");
+                const icon = isChecked ? "pi-check-square" : "pi-stop";
+                btn.innerHTML = `<span class="pi ${icon} cm-check-icon"></span> ${label}`;
+                if (title) btn.title = title;
+                btn.onclick = (ev) => {
+                    ev.stopPropagation();
+                    onToggle();
+                    // Rebuild menu in-place by re-clicking the filter button
+                    dismissContextMenu();
+                    update();
+                    // Re-open the menu after a tick so the user can keep selecting
+                    setTimeout(() => el.querySelector("#cm-filter").click(), 0);
+                };
+                return btn;
+            };
+
+            // Section: Model filter
+            if (availableModels.length > 0) {
+                const sep1 = document.createElement("div");
+                sep1.className = "cm-context-menu-separator";
+                menu.appendChild(sep1);
+
+                const modelHeader = document.createElement("div");
+                modelHeader.className = "cm-context-menu-label";
+                modelHeader.textContent = `Checkpoint${activeModelFilters.size > 0 ? ` (${activeModelFilters.size})` : ""}`;
+                menu.appendChild(modelHeader);
+
+                if (activeModelFilters.size > 0) {
+                    menu.appendChild(makeCheckItem("Clear all", false, () => { activeModelFilters.clear(); }));
+                }
+
+                availableModels.slice(0, 15).forEach(m => {
+                    const shortName = m.split(/[\\/]/).pop();
+                    const checked = activeModelFilters.has(m);
+                    menu.appendChild(makeCheckItem(shortName, checked, () => {
+                        if (checked) activeModelFilters.delete(m);
+                        else activeModelFilters.add(m);
+                    }, m));
+                });
+            }
+
+            // Section: LoRA filter
+            if (availableLoras.length > 0) {
+                const sep2 = document.createElement("div");
+                sep2.className = "cm-context-menu-separator";
+                menu.appendChild(sep2);
+
+                const loraHeader = document.createElement("div");
+                loraHeader.className = "cm-context-menu-label";
+                loraHeader.textContent = `LoRA${activeLoraFilters.size > 0 ? ` (${activeLoraFilters.size})` : ""}`;
+                menu.appendChild(loraHeader);
+
+                if (activeLoraFilters.size > 0) {
+                    menu.appendChild(makeCheckItem("Clear all", false, () => { activeLoraFilters.clear(); }));
+                }
+
+                availableLoras.slice(0, 15).forEach(l => {
+                    const shortName = l.split(/[\\/]/).pop();
+                    const checked = activeLoraFilters.has(l);
+                    menu.appendChild(makeCheckItem(shortName, checked, () => {
+                        if (checked) activeLoraFilters.delete(l);
+                        else activeLoraFilters.add(l);
+                    }, l));
+                });
+            }
+
+            // Section: NSFW toggle
+            const sep3 = document.createElement("div");
+            sep3.className = "cm-context-menu-separator";
+            menu.appendChild(sep3);
+
+            const nsfwBtn = document.createElement("button");
+            nsfwBtn.className = "cm-context-menu-item";
+            nsfwBtn.innerHTML = `${hideNsfw ? '<span class="pi pi-eye-slash"></span> ' : '<span class="pi pi-eye"></span> '}${hideNsfw ? "NSFW hidden" : "NSFW visible"}`;
+            nsfwBtn.onclick = (ev) => { ev.stopPropagation(); hideNsfw = !hideNsfw; dismissContextMenu(); update(); };
+            menu.appendChild(nsfwBtn);
+
+            document.body.appendChild(menu);
+            activeContextMenu = menu;
+
+            // Position below the filter button
+            const btnRect = el.querySelector("#cm-filter").getBoundingClientRect();
+            const menuRect = menu.getBoundingClientRect();
+            let x = btnRect.left;
+            let y = btnRect.bottom + 4;
+            if (x + menuRect.width > window.innerWidth) x = window.innerWidth - menuRect.width - 4;
+            if (y + menuRect.height > window.innerHeight) y = btnRect.top - menuRect.height - 4;
+            menu.style.left = `${x}px`;
+            menu.style.top = `${y}px`;
+        };
+
+        // Favorites toggle
+        el.querySelector("#cm-fav-toggle").onclick = () => {
+            showFavorites = !showFavorites;
+            el.querySelector("#cm-fav-toggle").classList.toggle("active", showFavorites);
+            el.querySelector("#cm-fav-toggle").title = showFavorites ? "Showing favorites only" : "Show favorites only";
+            update();
+        };
+
+        // Sort toggle: cycles between date and size
+        el.querySelector("#cm-sort").onclick = () => {
+            const btn = el.querySelector("#cm-sort");
+            if (sortBy === "date") {
+                sortBy = "size";
+                btn.title = "Sort by size (largest first)";
+                btn.classList.add("active");
+            } else {
+                sortBy = "date";
+                btn.title = "Sort by date";
+                btn.classList.remove("active");
+            }
+            update();
+        };
+
+        // Workflow-only filter toggle
+        el.querySelector("#cm-workflow-filter").onclick = () => {
+            workflowOnly = !workflowOnly;
+            const btn = el.querySelector("#cm-workflow-filter");
+            btn.classList.toggle("active", workflowOnly);
+            btn.title = workflowOnly ? "Showing workflow assets only" : "Show only assets with workflows";
+            update();
+        };
+
         update();
       }
     });

@@ -41,7 +41,12 @@ def save_config(config):
 
 NSFW_TERMS = load_nsfw_terms()
 
-def get_image_metadata(full_path):
+# Custom tEXt chunk keys for asset metadata embedded directly in PNG files
+ASSET_META_KEYS = ("asset_title", "asset_description", "asset_tags", "asset_rating")
+
+def read_png_chunks(full_path):
+    """Read all PNG chunks from a file. Returns list of (type_bytes, data_bytes) tuples."""
+    chunks = []
     try:
         with open(full_path, "rb") as f:
             signature = f.read(8)
@@ -50,17 +55,85 @@ def get_image_metadata(full_path):
                 chunk_hdr = f.read(8)
                 if not chunk_hdr or len(chunk_hdr) < 8: break
                 length, chunk_type = struct.unpack(">I4s", chunk_hdr)
-                if chunk_type == b"tEXt":
-                    data = f.read(length)
-                    key, value = data.split(b"\x00", 1)
-                    if key == b"prompt":
-                        prompt = json.loads(value)
-                        models = [v['inputs']['ckpt_name'] for k, v in prompt.items() if 'ckpt_name' in v.get('inputs', {})]
-                        loras = [v['inputs']['lora_name'] for k, v in prompt.items() if 'lora_name' in v.get('inputs', {})]
-                        return {"prompt": prompt, "models": models, "loras": loras}
-                else: f.seek(length, 1)
-                f.read(4)
-    except: pass
+                data = f.read(length)
+                crc = f.read(4)
+                chunks.append((chunk_type, data, crc))
+    except Exception:
+        return None
+    return chunks
+
+def get_asset_metadata(full_path):
+    """Read custom asset metadata (title, description, tags, rating) from PNG tEXt chunks."""
+    meta = {"title": "", "description": "", "tags": "", "rating": ""}
+    chunks = read_png_chunks(full_path)
+    if not chunks:
+        return meta
+    for chunk_type, data, _ in chunks:
+        if chunk_type == b"tEXt" and b"\x00" in data:
+            key, value = data.split(b"\x00", 1)
+            key_str = key.decode("ascii", errors="replace")
+            if key_str == "asset_title":
+                meta["title"] = value.decode("utf-8", errors="replace")
+            elif key_str == "asset_description":
+                meta["description"] = value.decode("utf-8", errors="replace")
+            elif key_str == "asset_tags":
+                meta["tags"] = value.decode("utf-8", errors="replace")
+            elif key_str == "asset_rating":
+                meta["rating"] = value.decode("utf-8", errors="replace")
+    return meta
+
+def write_asset_metadata(full_path, title="", description="", tags="", rating=""):
+    """Write custom asset metadata into PNG tEXt chunks. Preserves all other chunks."""
+    chunks = read_png_chunks(full_path)
+    if chunks is None:
+        return False
+    # Filter out existing asset metadata chunks
+    filtered = [c for c in chunks if not (c[0] == b"tEXt" and c[1].split(b"\x00", 1)[0].decode("ascii", errors="replace") in ASSET_META_KEYS)]
+    # Build new metadata chunks (insert before IEND)
+    new_meta = {"asset_title": title, "asset_description": description, "asset_tags": tags, "asset_rating": rating}
+    meta_chunks = []
+    for key, val in new_meta.items():
+        if val:
+            chunk_data = key.encode("ascii") + b"\x00" + val.encode("utf-8")
+            meta_chunks.append((b"tEXt", chunk_data, None))
+    # Rebuild: all chunks except IEND, then meta chunks, then IEND
+    iend = [c for c in filtered if c[0] == b"IEND"]
+    body = [c for c in filtered if c[0] != b"IEND"]
+    final = body + meta_chunks + iend
+    # Write file
+    try:
+        import zlib as _zlib
+        with open(full_path, "wb") as f:
+            f.write(b"\x89PNG\r\n\x1a\n")
+            for chunk_type, data, original_crc in final:
+                f.write(struct.pack(">I", len(data)))
+                f.write(chunk_type)
+                f.write(data)
+                if original_crc is not None:
+                    f.write(original_crc)
+                else:
+                    crc = _zlib.crc32(chunk_type + data) & 0xFFFFFFFF
+                    f.write(struct.pack(">I", crc))
+        return True
+    except Exception:
+        return False
+
+def get_image_metadata(full_path):
+    """Read ComfyUI workflow prompt metadata from PNG tEXt chunks."""
+    chunks = read_png_chunks(full_path)
+    if not chunks:
+        return None
+    for chunk_type, data, _ in chunks:
+        if chunk_type == b"tEXt" and b"\x00" in data:
+            key, value = data.split(b"\x00", 1)
+            if key == b"prompt":
+                try:
+                    prompt = json.loads(value)
+                    models = [v['inputs']['ckpt_name'] for k, v in prompt.items() if 'ckpt_name' in v.get('inputs', {})]
+                    loras = [v['inputs']['lora_name'] for k, v in prompt.items() if 'lora_name' in v.get('inputs', {})]
+                    return {"prompt": prompt, "models": models, "loras": loras}
+                except (json.JSONDecodeError, AttributeError):
+                    pass
     return None
 
 async def serve_ext_file(request):
@@ -72,12 +145,26 @@ async def serve_ext_file(request):
     if not any(os.path.abspath(file_path).startswith(os.path.abspath(d)) for d in allowed_dirs): return web.Response(status=403)
     return web.FileResponse(file_path)
 
+def format_file_size(size_bytes):
+    if size_bytes < 1024:
+        return f"{size_bytes} B"
+    elif size_bytes < 1024 * 1024:
+        return f"{size_bytes / 1024:.1f} KB"
+    elif size_bytes < 1024 * 1024 * 1024:
+        return f"{size_bytes / (1024 * 1024):.1f} MB"
+    return f"{size_bytes / (1024 * 1024 * 1024):.1f} GB"
+
 async def get_history(request):
     params = request.query
     query, hide_nsfw = params.get("q", "").lower(), params.get("hide_nsfw", "true") == "true"
     tab = params.get("tab", "all")
     utility_type, favorites_only = params.get("utility", "all"), params.get("favorites_only") == "true"
-    target_model, target_lora = params.get("model_filter", "all"), params.get("lora_filter", "all")
+    model_filter_raw = params.get("model_filter", "all")
+    lora_filter_raw = params.get("lora_filter", "all")
+    target_models = set() if model_filter_raw == "all" else set(model_filter_raw.split(","))
+    target_loras = set() if lora_filter_raw == "all" else set(lora_filter_raw.split(","))
+    sort_by = params.get("sort", "date")
+    workflow_only = params.get("workflow_only") == "true"
 
     config = load_config()
     favorites = set(config.get("favorites", []))
@@ -105,9 +192,19 @@ async def get_history(request):
         if os.path.exists(target["path"]):
             for root, _, files in os.walk(target["path"]):
                 for f in files:
-                    if f.lower().endswith(('.png', '.webp')): all_files.append({"filename": f, "path": root})
+                    if f.lower().endswith(('.png', '.webp')):
+                        fp = os.path.join(root, f)
+                        try:
+                            stat = os.stat(fp)
+                            all_files.append({"filename": f, "path": root, "mtime": stat.st_mtime, "size": stat.st_size})
+                        except OSError:
+                            pass
 
-    all_files.sort(key=lambda x: os.path.getmtime(os.path.join(x['path'], x['filename'])), reverse=True)
+    if sort_by == "size":
+        all_files.sort(key=lambda x: x['size'], reverse=True)
+    else:
+        all_files.sort(key=lambda x: x['mtime'], reverse=True)
+
     filtered = []
     for entry in all_files:
         full_path = os.path.normpath(os.path.join(entry['path'], entry['filename']))
@@ -116,13 +213,45 @@ async def get_history(request):
         if query and query not in entry['filename'].lower(): continue
         meta = get_image_metadata(full_path)
         has_workflow = meta is not None
+        if workflow_only and not has_workflow: continue
         if utility_type == "generation" and not has_workflow: continue
         if utility_type == "input" and has_workflow: continue
+        asset_meta = get_asset_metadata(full_path) if full_path.lower().endswith('.png') else {"title": "", "description": "", "tags": "", "rating": ""}
+        if hide_nsfw:
+            # Check filename
+            name_lower = entry['filename'].lower()
+            if any(term in name_lower for term in NSFW_TERMS): continue
+            # Check embedded asset metadata (title, description, tags)
+            asset_text = f"{asset_meta['title']} {asset_meta['description']} {asset_meta['tags']}".lower()
+            if any(term in asset_text for term in NSFW_TERMS): continue
+        # If model/lora filters are active, images must have workflow metadata
+        if (target_models or target_loras) and not meta:
+            continue
         if meta:
-            if hide_nsfw and any(term in str(meta['prompt']).lower() for term in NSFW_TERMS): continue
-            if target_model != "all" and target_model not in meta['models']: continue
-            if target_lora != "all" and target_lora not in meta['loras']: continue
-        filtered.append({"filename": entry['filename'], "url": f"/cm-ext-view?path={urllib.parse.quote(full_path)}", "full_path": full_path, "has_workflow": has_workflow, "is_favorite": is_fav})
+            if hide_nsfw:
+                searchable = str(meta['prompt']).lower()
+                model_lora_tags = " ".join(meta['models'] + meta['loras']).lower()
+                searchable += " " + model_lora_tags
+                if any(term in searchable for term in NSFW_TERMS): continue
+            if target_models and not target_models.intersection(meta['models']):
+                continue
+            if target_loras and not target_loras.intersection(meta['loras']):
+                continue
+        ext = os.path.splitext(entry['filename'])[1].lstrip('.').upper()
+        filtered.append({
+            "filename": entry['filename'],
+            "url": f"/cm-ext-view?path={urllib.parse.quote(full_path)}",
+            "full_path": full_path,
+            "has_workflow": has_workflow,
+            "is_favorite": is_fav,
+            "file_size": entry['size'],
+            "file_size_formatted": format_file_size(entry['size']),
+            "file_type": ext,
+            "asset_title": asset_meta["title"],
+            "asset_description": asset_meta["description"],
+            "asset_tags": asset_meta["tags"],
+            "asset_rating": asset_meta["rating"],
+        })
         if len(filtered) >= 60: break
     return web.json_response({"files": filtered})
 
@@ -153,8 +282,8 @@ async def delete_file(request):
     return web.json_response({"status": "error"}, status=404)
 
 async def get_tags(request):
+    models = set()
     loras = set()
-    all_models = folder_paths.get_filename_list("checkpoints")
     config = load_config()
     paths = [folder_paths.get_input_directory(), folder_paths.get_output_directory()] + [f["path"] for f in config["custom_folders"]]
     for path in paths:
@@ -163,8 +292,10 @@ async def get_tags(request):
                 recent = sorted(files, key=lambda x: os.path.getmtime(os.path.join(root, x)), reverse=True)[:50]
                 for f in recent:
                     meta = get_image_metadata(os.path.join(root, f))
-                    if meta: loras.update(meta['loras'])
-    return web.json_response({"models": sorted(all_models), "loras": sorted(list(loras))})
+                    if meta:
+                        models.update(meta['models'])
+                        loras.update(meta['loras'])
+    return web.json_response({"models": sorted(models), "loras": sorted(loras)})
 
 async def get_subdirectories(request):
     path = request.query.get("path", "")
@@ -208,6 +339,38 @@ async def open_file(request):
     except Exception as e:
         return web.json_response({"status": "error", "message": str(e)}, status=500)
 
+async def get_metadata(request):
+    path = request.query.get("path")
+    if not path or not os.path.exists(path):
+        return web.json_response({"error": "File not found"}, status=404)
+    if not path.lower().endswith('.png'):
+        return web.json_response({"error": "Only PNG files support embedded metadata"}, status=400)
+    meta = get_asset_metadata(path)
+    return web.json_response(meta)
+
+async def save_metadata(request):
+    data = await request.json()
+    path = data.get("path")
+    if not path or not os.path.exists(path):
+        return web.json_response({"error": "File not found"}, status=404)
+    if not path.lower().endswith('.png'):
+        return web.json_response({"error": "Only PNG files support embedded metadata"}, status=400)
+    config = load_config()
+    output_dir = config.get("output_path") or folder_paths.get_output_directory()
+    allowed_dirs = [folder_paths.get_input_directory(), output_dir, folder_paths.get_output_directory()] + [f["path"] for f in config["custom_folders"]]
+    if not any(os.path.abspath(path).startswith(os.path.abspath(d)) for d in allowed_dirs):
+        return web.json_response({"error": "Access denied"}, status=403)
+    ok = write_asset_metadata(
+        path,
+        title=data.get("title", ""),
+        description=data.get("description", ""),
+        tags=data.get("tags", ""),
+        rating=data.get("rating", ""),
+    )
+    if ok:
+        return web.json_response({"status": "success"})
+    return web.json_response({"error": "Failed to write metadata"}, status=500)
+
 PromptServer.instance.app.add_routes([
     web.get("/dnh-assetmanager/history", get_history),
     web.get("/dnh-assetmanager/tags", get_tags),
@@ -217,6 +380,8 @@ PromptServer.instance.app.add_routes([
     web.post("/dnh-assetmanager/folders", manage_folders),
     web.post("/dnh-assetmanager/favorite", toggle_favorite),
     web.post("/dnh-assetmanager/delete", delete_file),
+    web.get("/dnh-assetmanager/metadata", get_metadata),
+    web.post("/dnh-assetmanager/metadata", save_metadata),
     web.post("/dnh-assetmanager/open", open_file),
     web.get("/cm-ext-view", serve_ext_file)
 ])
