@@ -19,7 +19,7 @@ app.registerExtension({
         let activeTab = "all";
         let activeUtility = "all";
         let customFolderCount = 0;
-        let sortBy = "date";
+        let sortBy = "date_desc";
         let workflowOnly = false;
 
         el.innerHTML = `
@@ -353,6 +353,10 @@ app.registerExtension({
             if (!hideNsfw) filters.push({ label: "NSFW: shown", clear: () => { hideNsfw = true; } });
             if (showFavorites) filters.push({ label: "Favorites", clear: () => { showFavorites = false; el.querySelector("#cm-fav-toggle").classList.remove("active"); } });
             if (workflowOnly) filters.push({ label: "Workflows only", clear: () => { workflowOnly = false; el.querySelector("#cm-workflow-filter").classList.remove("active"); } });
+            if (sortBy !== "date_desc") {
+                const sortLabel = { date_asc: "Oldest first", size_desc: "Largest first", size_asc: "Smallest first", name_asc: "Name A\u2192Z", name_desc: "Name Z\u2192A" };
+                filters.push({ label: `Sort: ${sortLabel[sortBy] || sortBy}`, clear: () => { sortBy = "date_desc"; updateSortButton(); } });
+            }
 
             filters.forEach(f => {
                 const chip = document.createElement("div");
@@ -642,20 +646,71 @@ app.registerExtension({
             update();
         };
 
-        // Sort toggle: cycles between date and size
-        el.querySelector("#cm-sort").onclick = () => {
+        // Sort options
+        const sortOptions = [
+            { value: "date_desc", label: "Date (newest first)", icon: "pi-sort-amount-down" },
+            { value: "date_asc",  label: "Date (oldest first)", icon: "pi-sort-amount-up" },
+            { value: "size_desc", label: "Size (largest first)", icon: "pi-sort-amount-down" },
+            { value: "size_asc",  label: "Size (smallest first)", icon: "pi-sort-amount-up" },
+            { value: "name_asc",  label: "Name (A \u2192 Z)", icon: "pi-sort-alpha-down" },
+            { value: "name_desc", label: "Name (Z \u2192 A)", icon: "pi-sort-alpha-up" },
+        ];
+
+        const updateSortButton = () => {
             const btn = el.querySelector("#cm-sort");
-            if (sortBy === "date") {
-                sortBy = "size";
-                btn.title = "Sort by size (largest first)";
-                btn.classList.add("active");
-            } else {
-                sortBy = "date";
-                btn.title = "Sort by date";
-                btn.classList.remove("active");
-            }
+            const current = sortOptions.find(o => o.value === sortBy);
+            btn.title = current ? current.label : "Sort";
+            btn.classList.toggle("active", sortBy !== "date_desc");
+        };
+
+        const showSortMenu = (e) => {
+            e.preventDefault();
+            e.stopPropagation();
+            dismissContextMenu();
+
+            const menu = document.createElement("div");
+            menu.className = "cm-context-menu";
+
+            const header = document.createElement("div");
+            header.className = "cm-context-menu-label";
+            header.textContent = "Sort By";
+            menu.appendChild(header);
+
+            sortOptions.forEach(opt => {
+                const btn = document.createElement("button");
+                btn.className = "cm-context-menu-item" + (sortBy === opt.value ? " cm-active" : "");
+                btn.innerHTML = `${sortBy === opt.value ? '<span class="pi pi-check"></span> ' : '<span style="width:16px;display:inline-block"></span> '}${opt.label}`;
+                btn.onclick = (ev) => {
+                    ev.stopPropagation();
+                    sortBy = opt.value;
+                    updateSortButton();
+                    dismissContextMenu();
+                    update();
+                };
+                menu.appendChild(btn);
+            });
+
+            document.body.appendChild(menu);
+            activeContextMenu = menu;
+
+            const btnRect = el.querySelector("#cm-sort").getBoundingClientRect();
+            const menuRect = menu.getBoundingClientRect();
+            let x = btnRect.left;
+            let y = btnRect.bottom + 4;
+            if (x + menuRect.width > window.innerWidth) x = window.innerWidth - menuRect.width - 4;
+            if (y + menuRect.height > window.innerHeight) y = btnRect.top - menuRect.height - 4;
+            menu.style.left = `${x}px`;
+            menu.style.top = `${y}px`;
+        };
+
+        // Left-click: cycle to next sort option. Right-click: open full menu.
+        el.querySelector("#cm-sort").onclick = () => {
+            const currentIdx = sortOptions.findIndex(o => o.value === sortBy);
+            sortBy = sortOptions[(currentIdx + 1) % sortOptions.length].value;
+            updateSortButton();
             update();
         };
+        el.querySelector("#cm-sort").oncontextmenu = showSortMenu;
 
         // Workflow-only filter toggle
         el.querySelector("#cm-workflow-filter").onclick = () => {

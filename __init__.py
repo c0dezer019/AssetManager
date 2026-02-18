@@ -200,9 +200,18 @@ async def get_history(request):
                         except OSError:
                             pass
 
-    if sort_by == "size":
+    if sort_by == "size_desc":
         all_files.sort(key=lambda x: x['size'], reverse=True)
+    elif sort_by == "size_asc":
+        all_files.sort(key=lambda x: x['size'])
+    elif sort_by == "name_asc":
+        all_files.sort(key=lambda x: x['filename'].lower())
+    elif sort_by == "name_desc":
+        all_files.sort(key=lambda x: x['filename'].lower(), reverse=True)
+    elif sort_by == "date_asc":
+        all_files.sort(key=lambda x: x['mtime'])
     else:
+        # Default: date_desc (newest first)
         all_files.sort(key=lambda x: x['mtime'], reverse=True)
 
     filtered = []
@@ -285,11 +294,13 @@ async def get_tags(request):
     models = set()
     loras = set()
     config = load_config()
-    paths = [folder_paths.get_input_directory(), folder_paths.get_output_directory()] + [f["path"] for f in config["custom_folders"]]
+    output_dir = config.get("output_path") or folder_paths.get_output_directory()
+    paths = [folder_paths.get_input_directory(), output_dir] + [f["path"] for f in config["custom_folders"]]
     for path in paths:
         if os.path.exists(path):
             for root, _, files in os.walk(path):
-                recent = sorted(files, key=lambda x: os.path.getmtime(os.path.join(root, x)), reverse=True)[:50]
+                pngs = [f for f in files if f.lower().endswith('.png')]
+                recent = sorted(pngs, key=lambda x: os.path.getmtime(os.path.join(root, x)), reverse=True)[:50]
                 for f in recent:
                     meta = get_image_metadata(os.path.join(root, f))
                     if meta:
