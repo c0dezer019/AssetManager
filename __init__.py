@@ -1,5 +1,7 @@
+import datetime
 import os
 import json
+import re as _re
 import struct
 import subprocess
 import sys
@@ -122,7 +124,11 @@ def write_asset_metadata(full_path, title="", description="", tags="", rating=""
         return False
 
 def get_image_metadata(full_path):
-    """Read ComfyUI workflow prompt metadata from PNG tEXt chunks."""
+    """Read ComfyUI workflow prompt metadata from PNG tEXt chunks.
+
+    Extracts models, LoRAs, seeds, sampler settings, prompt text, node types,
+    and builds a unified searchable_text string for broad substring matching.
+    """
     chunks = read_png_chunks(full_path)
     if not chunks:
         return None
@@ -132,12 +138,228 @@ def get_image_metadata(full_path):
             if key == b"prompt":
                 try:
                     prompt = json.loads(value)
-                    models = [v['inputs']['ckpt_name'] for k, v in prompt.items() if 'ckpt_name' in v.get('inputs', {})]
-                    loras = [v['inputs']['lora_name'] for k, v in prompt.items() if 'lora_name' in v.get('inputs', {})]
-                    return {"prompt": prompt, "models": models, "loras": loras}
                 except (json.JSONDecodeError, AttributeError):
-                    pass
+                    continue
+
+                models = []
+                loras = []
+                seeds = []
+                sampler_names = []
+                schedulers = []
+                steps_list = []
+                cfg_list = []
+                prompt_texts = []
+                node_types = []
+                all_text_values = []
+
+                for _node_id, node in prompt.items():
+                    if not isinstance(node, dict):
+                        continue
+                    class_type = node.get("class_type", "")
+                    if class_type:
+                        node_types.append(class_type)
+
+                    inputs = node.get("inputs", {})
+                    if not isinstance(inputs, dict):
+                        continue
+
+                    # Models & LoRAs
+                    if "ckpt_name" in inputs:
+                        models.append(inputs["ckpt_name"])
+                    if "lora_name" in inputs:
+                        loras.append(inputs["lora_name"])
+
+                    # Sampler settings
+                    if "seed" in inputs:
+                        val = inputs["seed"]
+                        if isinstance(val, (int, float)):
+                            seeds.append(str(int(val)))
+                    if "sampler_name" in inputs:
+                        val = inputs["sampler_name"]
+                        if isinstance(val, str):
+                            sampler_names.append(val)
+                    if "scheduler" in inputs:
+                        val = inputs["scheduler"]
+                        if isinstance(val, str):
+                            schedulers.append(val)
+                    if "steps" in inputs:
+                        val = inputs["steps"]
+                        if isinstance(val, (int, float)):
+                            steps_list.append(str(int(val)))
+                    if "cfg" in inputs:
+                        val = inputs["cfg"]
+                        if isinstance(val, (int, float)):
+                            cfg_list.append(str(val))
+
+                    # Prompt text from CLIPTextEncode and similar nodes
+                    if "text" in inputs:
+                        val = inputs["text"]
+                        if isinstance(val, str) and val.strip():
+                            prompt_texts.append(val.strip())
+
+                    # Collect all string-type input values for broad search
+                    for v in inputs.values():
+                        if isinstance(v, str) and v.strip():
+                            all_text_values.append(v.strip())
+
+                # Build a single lowercased searchable string
+                searchable_parts = (
+                    models + loras + seeds + sampler_names + schedulers
+                    + steps_list + cfg_list + prompt_texts + node_types
+                    + all_text_values
+                )
+                searchable_text = " ".join(searchable_parts).lower()
+
+                return {
+                    "prompt": prompt,
+                    "models": models,
+                    "loras": loras,
+                    "seeds": seeds,
+                    "sampler_names": sampler_names,
+                    "schedulers": schedulers,
+                    "steps": steps_list,
+                    "cfg": cfg_list,
+                    "prompt_texts": prompt_texts,
+                    "node_types": node_types,
+                    "searchable_text": searchable_text,
+                }
     return None
+
+def parse_search_query(raw_query):
+    """Parse a search query string into a list of search terms.
+
+    Supports:
+    - key:"quoted value" for values with spaces/commas (e.g. prompt:"a brown kitty, realistic")
+    - key:value prefix syntax for simple values (e.g. seed:12345, model:sdxl)
+    - "quoted phrase" for multi-word unprefixed search
+    - Multiple space-separated terms are AND-matched
+
+    Workflow prefixes: seed, model, lora, node, sampler, scheduler, steps, cfg, prompt
+    File-level prefixes: filename (or name), type, size, path, date
+
+    Returns a list of dicts: [{"key": str|None, "value": str}, ...]
+    """
+    if not raw_query or not raw_query.strip():
+        return []
+
+    terms = []
+    # Match quoted strings or key:value pairs or plain words
+    pattern = _re.compile(
+        r'(\w+):"([^"]*)"'   # key:"quoted value"
+        r'|(\w+):(\S+)'      # key:value
+        r'|"([^"]*)"'        # "quoted phrase"
+        r"|(\S+)"            # plain word
+    )
+    for m in pattern.finditer(raw_query):
+        if m.group(1) is not None:
+            # key:"quoted value"
+            terms.append({"key": m.group(1).lower(), "value": m.group(2).lower()})
+        elif m.group(3) is not None:
+            # key:value
+            terms.append({"key": m.group(3).lower(), "value": m.group(4).lower()})
+        elif m.group(5) is not None:
+            # "quoted phrase"
+            terms.append({"key": None, "value": m.group(5).lower()})
+        elif m.group(6) is not None:
+            # plain word
+            terms.append({"key": None, "value": m.group(6).lower()})
+    return terms
+
+
+def match_search_terms(terms, filename_lower, asset_meta, meta, file_info=None):
+    """Check if ALL search terms match against the available data.
+
+    - Unprefixed terms: substring match across filename, asset metadata,
+      file-level info, and workflow searchable_text.
+    - Prefixed terms (key:value): targeted matching against specific metadata
+      fields. seed/steps use exact match; others use substring.
+    - File-level prefixes: filename, name, type, size, path, date.
+
+    Returns True if every term matches.
+    """
+    # Build broad search corpus once (for unprefixed terms)
+    broad_parts = [filename_lower]
+    if asset_meta:
+        broad_parts.extend([
+            asset_meta.get("title", "").lower(),
+            asset_meta.get("description", "").lower(),
+            asset_meta.get("tags", "").lower(),
+        ])
+    if meta:
+        broad_parts.append(meta.get("searchable_text", ""))
+    if file_info:
+        broad_parts.extend([
+            file_info.get("file_type", "").lower(),
+            file_info.get("file_size", "").lower(),
+            file_info.get("created_date", "").lower(),
+            file_info.get("full_path", "").lower(),
+        ])
+    broad_text = " ".join(broad_parts)
+
+    for term in terms:
+        key, value = term["key"], term["value"]
+        if not value:
+            continue
+
+        if key is None:
+            # Broad substring search
+            if value not in broad_text:
+                return False
+        # ── File-level prefixes ──
+        elif key in ("filename", "name"):
+            if value not in filename_lower:
+                return False
+        elif key == "type":
+            file_type = (file_info or {}).get("file_type", "").lower()
+            if value != file_type:
+                return False
+        elif key == "size":
+            file_size = (file_info or {}).get("file_size", "").lower()
+            if value not in file_size:
+                return False
+        elif key == "path":
+            full_path = (file_info or {}).get("full_path", "").lower()
+            if value not in full_path:
+                return False
+        elif key == "date":
+            created_date = (file_info or {}).get("created_date", "").lower()
+            if value not in created_date:
+                return False
+        # ── Workflow prefixes ──
+        elif key == "seed":
+            if not meta or value not in meta.get("seeds", []):
+                return False
+        elif key == "model":
+            if not meta or not any(value in m.lower() for m in meta.get("models", [])):
+                return False
+        elif key == "lora":
+            if not meta or not any(value in la.lower() for la in meta.get("loras", [])):
+                return False
+        elif key == "node":
+            if not meta or not any(value in n.lower() for n in meta.get("node_types", [])):
+                return False
+        elif key == "sampler":
+            if not meta or not any(value in s.lower() for s in meta.get("sampler_names", [])):
+                return False
+        elif key == "scheduler":
+            if not meta or not any(value in s.lower() for s in meta.get("schedulers", [])):
+                return False
+        elif key == "steps":
+            if not meta or value not in meta.get("steps", []):
+                return False
+        elif key == "cfg":
+            if not meta or not any(value == c for c in meta.get("cfg", [])):
+                return False
+        elif key == "prompt":
+            if not meta or not any(value in p.lower() for p in meta.get("prompt_texts", [])):
+                return False
+        else:
+            # Unknown prefix — fall back to broad search
+            prefixed = f"{key}:{value}"
+            if prefixed not in broad_text:
+                return False
+    return True
+
 
 async def serve_ext_file(request):
     file_path = request.query.get("path")
@@ -159,7 +381,9 @@ def format_file_size(size_bytes):
 
 async def get_history(request):
     params = request.query
-    query, hide_nsfw = params.get("q", "").lower(), params.get("hide_nsfw", "true") == "true"
+    raw_query = params.get("q", "").strip()
+    search_terms = parse_search_query(raw_query)
+    hide_nsfw = params.get("hide_nsfw", "true") == "true"
     tab = params.get("tab", "all")
     utility_type, favorites_only = params.get("utility", "all"), params.get("favorites_only") == "true"
     model_filter_raw = params.get("model_filter", "all")
@@ -222,13 +446,22 @@ async def get_history(request):
         full_path = os.path.normpath(os.path.join(entry['path'], entry['filename']))
         is_fav = full_path in favorites
         if favorites_only and not is_fav: continue
-        if query and query not in entry['filename'].lower(): continue
         meta = get_image_metadata(full_path)
         has_workflow = meta is not None
         if workflow_only and not has_workflow: continue
         if utility_type == "generation" and not has_workflow: continue
         if utility_type == "input" and has_workflow: continue
         asset_meta = get_asset_metadata(full_path) if full_path.lower().endswith('.png') else {"title": "", "description": "", "tags": "", "rating": ""}
+        # Search filtering — check after metadata is loaded so all fields are available
+        ext = os.path.splitext(entry['filename'])[1].lstrip('.').upper()
+        search_file_info = {
+            "file_type": ext,
+            "file_size": format_file_size(entry['size']),
+            "created_date": datetime.datetime.fromtimestamp(entry['mtime']).strftime("%b %d, %Y %H:%M"),
+            "full_path": full_path,
+        }
+        if search_terms and not match_search_terms(search_terms, entry['filename'].lower(), asset_meta, meta, search_file_info):
+            continue
         if hide_nsfw:
             # Check filename
             name_lower = entry['filename'].lower()
@@ -249,7 +482,42 @@ async def get_history(request):
                 continue
             if target_loras and not target_loras.intersection(meta['loras']):
                 continue
-        ext = os.path.splitext(entry['filename'])[1].lstrip('.').upper()
+        # Build metadata summary for frontend display
+        metadata_summary = {}
+        workflow_nodes = []
+        if meta:
+            if meta["models"]:
+                metadata_summary["model"] = meta["models"][0].split("/")[-1].split("\\")[-1]
+            if meta["seeds"]:
+                metadata_summary["seed"] = meta["seeds"][0]
+            if meta["sampler_names"]:
+                metadata_summary["sampler"] = meta["sampler_names"][0]
+            if meta["schedulers"]:
+                metadata_summary["scheduler"] = meta["schedulers"][0]
+            if meta["steps"]:
+                metadata_summary["steps"] = meta["steps"][0]
+            if meta["cfg"]:
+                metadata_summary["cfg"] = meta["cfg"][0]
+            # Build workflow_nodes: per-node scalar inputs for copy submenus
+            for node_id, node in meta["prompt"].items():
+                if not isinstance(node, dict):
+                    continue
+                class_type = node.get("class_type", "")
+                inputs = node.get("inputs", {})
+                if not isinstance(inputs, dict):
+                    continue
+                scalar_inputs = {}
+                for k, v in inputs.items():
+                    if isinstance(v, (str, int, float, bool)):
+                        scalar_inputs[k] = v
+                if scalar_inputs:
+                    workflow_nodes.append({
+                        "id": node_id,
+                        "class_type": class_type,
+                        "inputs": scalar_inputs,
+                    })
+        # Build file_metadata for copy submenu (reuse search_file_info)
+        file_metadata = dict(search_file_info, filename=entry['filename'])
         filtered.append({
             "filename": entry['filename'],
             "url": f"/cm-ext-view?path={urllib.parse.quote(full_path)}",
@@ -264,6 +532,9 @@ async def get_history(request):
             "asset_description": asset_meta["description"],
             "asset_tags": asset_meta["tags"],
             "asset_rating": asset_meta["rating"],
+            "metadata_summary": metadata_summary,
+            "workflow_nodes": workflow_nodes,
+            "file_metadata": file_metadata,
         })
         if len(filtered) >= 60: break
     return web.json_response({"files": filtered})

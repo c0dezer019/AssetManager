@@ -43,7 +43,7 @@ app.registerExtension({
             <div class="cm-search-container">
                 <div class="cm-search-wrapper">
                     <span class="pi pi-search cm-search-icon"></span>
-                    <input id="cm-search" type="text" placeholder="Search assets..." class="cm-search-input" />
+                    <input id="cm-search" type="text" placeholder="Search: name, seed:, model:, prompt:&quot;...&quot;" title="Search tips: type freely to search all fields, or use prefixes like seed:12345 model:sdxl prompt:&quot;a brown kitty&quot; lora:detail node:KSampler steps:20 cfg:7 sampler:euler filename:img type:png size:2.3 path:/output date:&quot;Jan 15&quot;. Wrap values with spaces/commas in quotes. Multiple terms are AND-matched." class="cm-search-input" />
                 </div>
                 <div class="cm-action-buttons">
                     <button id="cm-filter" class="cm-tool-btn" title="Filter options"><span class="pi pi-filter"></span></button>
@@ -118,9 +118,125 @@ app.registerExtension({
             <section id="cm-container" class="cm-asset-grid"></section>
           </div>`;
 
+        // ─── Copy & Submenu Helpers ───
+        const copyToClipboard = (text) => {
+            navigator.clipboard.writeText(String(text)).then(() => {
+                // Show brief toast
+                const toast = document.createElement("div");
+                toast.className = "cm-copy-toast";
+                toast.textContent = "Copied!";
+                document.body.appendChild(toast);
+                requestAnimationFrame(() => toast.classList.add("show"));
+                setTimeout(() => {
+                    toast.classList.remove("show");
+                    setTimeout(() => toast.remove(), 200);
+                }, 1200);
+            });
+        };
+
+        const truncateValue = (val, max = 40) => {
+            const s = String(val);
+            return s.length > max ? s.substring(0, max - 1) + "…" : s;
+        };
+
+        /**
+         * Attach a hover-triggered submenu to a parent menu item.
+         * `items` is [{label, value}] — clicking copies value.
+         * If `items` contains entries with `children` instead of `value`,
+         * a nested submenu is created (for workflow nodes).
+         * `cancelParentHide` — optional callback to cancel the ancestor
+         *   submenu's hide timer when a nested submenu is entered.
+         * Returns a cleanup function.
+         */
+        const attachSubmenu = (parentItem, items, cancelParentHide = null) => {
+            let submenuEl = null;
+            let hideTimer = null;
+            const cleanups = [];
+
+            // Cancel this level's timer AND propagate up to ancestors
+            const cancelHide = () => {
+                clearTimeout(hideTimer);
+                if (cancelParentHide) cancelParentHide();
+            };
+
+            const showSubmenu = () => {
+                cancelHide();
+                if (submenuEl) return;
+                submenuEl = document.createElement("div");
+                submenuEl.className = "cm-submenu";
+
+                items.forEach(item => {
+                    if (item.children) {
+                        // Nested submenu trigger (e.g., a workflow node)
+                        const nodeItem = document.createElement("div");
+                        nodeItem.className = "cm-context-menu-item cm-submenu-item";
+                        nodeItem.innerHTML = `<span class="cm-submenu-label">${item.label}</span><span class="cm-submenu-arrow">►</span>`;
+                        submenuEl.appendChild(nodeItem);
+                        // Pass cancelHide so nested submenus keep this one alive
+                        const childCleanup = attachSubmenu(nodeItem, item.children, cancelHide);
+                        cleanups.push(childCleanup);
+                    } else {
+                        const row = document.createElement("button");
+                        row.className = "cm-context-menu-item cm-submenu-copy-row";
+                        row.innerHTML = `<span class="cm-submenu-key">${item.label}</span><span class="cm-submenu-value" title="${String(item.value).replace(/"/g, '&quot;')}">${truncateValue(item.value)}</span>`;
+                        row.onclick = (ev) => {
+                            ev.stopPropagation();
+                            copyToClipboard(item.value);
+                            dismissContextMenu();
+                        };
+                        submenuEl.appendChild(row);
+                    }
+                });
+
+                document.body.appendChild(submenuEl);
+
+                // Position to the right of parentItem (or left if overflowing)
+                const parentRect = parentItem.getBoundingClientRect();
+                const subRect = submenuEl.getBoundingClientRect();
+                let left = parentRect.right + 2;
+                let top = parentRect.top;
+                if (left + subRect.width > window.innerWidth) {
+                    left = parentRect.left - subRect.width - 2;
+                }
+                if (top + subRect.height > window.innerHeight) {
+                    top = Math.max(4, window.innerHeight - subRect.height - 4);
+                }
+                submenuEl.style.left = `${left}px`;
+                submenuEl.style.top = `${top}px`;
+
+                // Keep submenu alive when hovering it (cancel full ancestor chain)
+                submenuEl.addEventListener("mouseenter", cancelHide);
+                submenuEl.addEventListener("mouseleave", scheduleHide);
+            };
+
+            const scheduleHide = () => {
+                hideTimer = setTimeout(() => {
+                    if (submenuEl) {
+                        // Clean up nested submenus first
+                        cleanups.forEach(fn => fn());
+                        submenuEl.remove();
+                        submenuEl = null;
+                    }
+                }, 150);
+            };
+
+            parentItem.addEventListener("mouseenter", showSubmenu);
+            parentItem.addEventListener("mouseleave", scheduleHide);
+
+            // Return cleanup function
+            return () => {
+                clearTimeout(hideTimer);
+                cleanups.forEach(fn => fn());
+                if (submenuEl) { submenuEl.remove(); submenuEl = null; }
+            };
+        };
+
         // Context menu helper
         let activeContextMenu = null;
+        let activeSubmenuCleanups = [];
         const dismissContextMenu = () => {
+            activeSubmenuCleanups.forEach(fn => fn());
+            activeSubmenuCleanups = [];
             if (activeContextMenu) {
                 activeContextMenu.remove();
                 activeContextMenu = null;
@@ -199,6 +315,51 @@ app.registerExtension({
                     openInfoPanel(file);
                 };
                 menu.appendChild(editBtn);
+            }
+
+            // ─── Copy Section ───
+            const copySep = document.createElement("div");
+            copySep.className = "cm-context-menu-separator";
+            menu.appendChild(copySep);
+
+            const copyLabel = document.createElement("div");
+            copyLabel.className = "cm-context-menu-label";
+            copyLabel.textContent = "Copy";
+            menu.appendChild(copyLabel);
+
+            // Metadata submenu (always present — file-level info)
+            const metaItems = [];
+            if (file.file_metadata) {
+                const fm = file.file_metadata;
+                if (fm.filename) metaItems.push({ label: "filename", value: fm.filename });
+                if (fm.file_type) metaItems.push({ label: "file_type", value: fm.file_type });
+                if (fm.file_size) metaItems.push({ label: "file_size", value: fm.file_size });
+                if (fm.created_date) metaItems.push({ label: "created", value: fm.created_date });
+                if (fm.full_path) metaItems.push({ label: "path", value: fm.full_path });
+            }
+            if (metaItems.length > 0) {
+                const metaItem = document.createElement("div");
+                metaItem.className = "cm-context-menu-item cm-submenu-item";
+                metaItem.innerHTML = `<span class="pi pi-info-circle"></span><span class="cm-submenu-label">Metadata</span><span class="cm-submenu-arrow">►</span>`;
+                menu.appendChild(metaItem);
+                activeSubmenuCleanups.push(attachSubmenu(metaItem, metaItems));
+            }
+
+            // Workflow submenu (only if has_workflow)
+            if (file.has_workflow && file.workflow_nodes && file.workflow_nodes.length > 0) {
+                const nodeItems = file.workflow_nodes.map(node => {
+                    const label = `${node.class_type || "Node"} #${node.id}`;
+                    const children = Object.entries(node.inputs).map(([k, v]) => ({
+                        label: k,
+                        value: v,
+                    }));
+                    return { label, children };
+                });
+                const wfItem = document.createElement("div");
+                wfItem.className = "cm-context-menu-item cm-submenu-item";
+                wfItem.innerHTML = `<span class="pi pi-sitemap"></span><span class="cm-submenu-label">Workflow</span><span class="cm-submenu-arrow">►</span>`;
+                menu.appendChild(wfItem);
+                activeSubmenuCleanups.push(attachSubmenu(wfItem, nodeItems));
             }
 
             // Separator

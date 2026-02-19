@@ -1,6 +1,6 @@
 # Asset Manager for ComfyUI
 
-**Asset Manager** is a sidebar-based image asset browser for ComfyUI. It scans your input, output, and custom directories for PNG/WebP images, reads embedded metadata, and lets you browse, filter, favorite, and reload workflows directly from the sidebar.
+**Asset Manager** is a sidebar-based image asset browser for ComfyUI. It scans your input, output, and custom directories for PNG/WebP images, reads embedded metadata, and lets you browse, filter, search, favorite, and reload workflows directly from the sidebar.
 
 Published to the Comfy Registry under publisher `c0dezer019`.
 
@@ -12,14 +12,71 @@ Published to the Comfy Registry under publisher `c0dezer019`.
 - **Configurable output path** — override the default ComfyUI output directory in settings
 - **Workflow loading** — click any image to load its embedded ComfyUI workflow, or right-click for more options
 - **External viewer** — open images in your system's default image viewer via the context menu
+- **Live file watching** — the sidebar updates automatically when files are added, deleted, or moved in your scanned directories
 
-### Filtering & Search
-- **Text search** — filter assets by filename
+### Search
+
+The search bar supports free-text search across all fields and targeted prefix searches for specific metadata. Multiple terms are AND-matched — every term must match for an image to appear.
+
+#### Basic search
+
+Type any word to search across filenames, asset metadata (title, description, tags), and all embedded workflow data:
+
+```
+cat                     # matches "cat" anywhere
+golden retriever        # matches "golden" AND "retriever" separately
+"golden retriever"      # matches the exact phrase "golden retriever"
+```
+
+#### Prefix search
+
+Use `key:value` to target specific fields. For simple values (no spaces or commas), quotes are optional. For values containing spaces or commas, wrap the value in quotes:
+
+```
+seed:12345              # exact match on seed value
+model:sdxl              # substring match on model/checkpoint name
+sampler:euler           # match sampler name
+prompt:cat              # substring match in prompt text
+prompt:"a brown kitty, realistic"   # match a phrase with spaces and commas
+```
+
+#### Available prefixes
+
+| Prefix | Matches against | Match type |
+|--------|----------------|------------|
+| `seed:` | Seed values | Exact |
+| `model:` | Checkpoint/model names | Substring |
+| `lora:` | LoRA names | Substring |
+| `prompt:` | Prompt text from CLIPTextEncode and similar nodes | Substring |
+| `sampler:` | Sampler name (euler, dpmpp_2m, etc.) | Substring |
+| `scheduler:` | Scheduler name | Substring |
+| `steps:` | Step count | Exact |
+| `cfg:` | CFG scale value | Exact |
+| `node:` | Node class types in the workflow | Substring |
+| `filename:` or `name:` | Filename | Substring |
+| `type:` | File type (PNG, WEBP) | Exact |
+| `size:` | Formatted file size (e.g. "2.3 MB") | Substring |
+| `path:` | Full file path on disk | Substring |
+| `date:` | Formatted creation date (e.g. "Jan 15, 2026") | Substring |
+
+#### Combining terms
+
+All terms are AND-matched. Combine freely:
+
+```
+model:sdxl sampler:euler prompt:"cute cat"
+type:png seed:12345
+filename:img path:/output
+date:"Jan 15" model:sdxl
+```
+
+### Filtering
 - **Tab navigation** — switch between All, Inputs, Outputs, and Custom folder views
 - **Utility type filter** — show only generated images (with workflow metadata) or only input assets (no workflow)
 - **Model/LoRA filtering** — filter by specific checkpoints or LoRAs extracted from embedded prompt metadata
 - **Workflow-only mode** — show only images that contain embedded workflows
 - **NSFW filter** — hide images matching a customizable keyword list (`filters.json`), scans filenames, asset metadata, and prompt data
+- **Active filter chips** — see and clear active filters from the status bar
 
 ### Sorting
 - Sort by date (newest/oldest), file size (largest/smallest), or name (A-Z / Z-A)
@@ -29,6 +86,16 @@ Published to the Comfy Registry under publisher `c0dezer019`.
 - **Toggle favorites** — click the bookmark icon on any card or use the right-click context menu to add/remove favorites
 - **Filter by favorites** — click the bookmark toolbar button to show only favorited images
 - Favorites are persisted in `config.json`
+
+### Context Menu (Right-Click)
+Right-click any image card for quick actions:
+- **Add/remove favorites**
+- **Load workflow** — load the image's embedded workflow into ComfyUI
+- **Open in external viewer** — open the file in your system's default image viewer
+- **Edit metadata** (PNG only) — open the metadata editor panel
+- **Copy > Metadata** — copy file-level info (filename, type, size, date, path) to clipboard
+- **Copy > Workflow** — browse workflow nodes and copy individual input values (seed, prompt text, model name, etc.) to clipboard. Each node appears as a submenu listing its scalar parameters.
+- **Delete** — permanently delete the file
 
 ### Asset Metadata (PNG)
 - **Embedded metadata editor** — right-click a PNG and select "Edit metadata" to set a title, description, tags, and star rating
@@ -75,6 +142,7 @@ This extension has **no Python nodes** — `NODE_CLASS_MAPPINGS` is empty. It co
 | GET | `/dnh-assetmanager/subdirs` | Directory browser |
 | GET | `/dnh-assetmanager/config` | Current configuration |
 | GET | `/dnh-assetmanager/metadata` | Read PNG asset metadata |
+| GET | `/dnh-assetmanager/version` | Extension version from pyproject.toml |
 | POST | `/dnh-assetmanager/folders` | Add/remove custom folders |
 | POST | `/dnh-assetmanager/favorite` | Toggle favorite on a file |
 | POST | `/dnh-assetmanager/delete` | Delete an asset file |
@@ -95,4 +163,4 @@ Ruff is configured via `pyproject.toml`.
 ### Requirements
 - ComfyUI with `PromptServer`
 - Python 3.10+
-- No additional Python dependencies
+- `watchdog` (for live file watching)
