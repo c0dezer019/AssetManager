@@ -256,6 +256,7 @@ async def get_history(request):
             "file_size": entry['size'],
             "file_size_formatted": format_file_size(entry['size']),
             "file_type": ext,
+            "created_at": entry['mtime'],
             "asset_title": asset_meta["title"],
             "asset_description": asset_meta["description"],
             "asset_tags": asset_meta["tags"],
@@ -382,6 +383,23 @@ async def save_metadata(request):
         return web.json_response({"status": "success"})
     return web.json_response({"error": "Failed to write metadata"}, status=500)
 
+def get_version():
+    """Read version from pyproject.toml."""
+    pyproject_path = os.path.join(EXTENSION_DIR, "pyproject.toml")
+    try:
+        with open(pyproject_path, "r") as f:
+            for line in f:
+                line = line.strip()
+                if line.startswith("version"):
+                    # Parse: version = "x.y.z"
+                    return line.split("=", 1)[1].strip().strip('"').strip("'")
+    except Exception:
+        pass
+    return "unknown"
+
+async def serve_version(request):
+    return web.json_response({"version": get_version()})
+
 PromptServer.instance.app.add_routes([
     web.get("/dnh-assetmanager/history", get_history),
     web.get("/dnh-assetmanager/tags", get_tags),
@@ -394,7 +412,8 @@ PromptServer.instance.app.add_routes([
     web.get("/dnh-assetmanager/metadata", get_metadata),
     web.post("/dnh-assetmanager/metadata", save_metadata),
     web.post("/dnh-assetmanager/open", open_file),
-    web.get("/cm-ext-view", serve_ext_file)
+    web.get("/cm-ext-view", serve_ext_file),
+    web.get("/dnh-assetmanager/version", serve_version)
 ])
 
 WEB_DIRECTORY, NODE_CLASS_MAPPINGS, NODE_DISPLAY_NAME_MAPPINGS = "./js", {}, {}

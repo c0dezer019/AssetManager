@@ -28,7 +28,7 @@ app.registerExtension({
                 <div class="cm-brand">
                     <span class="pi pi-folder cm-brand-icon"></span>
                     <span class="cm-brand-title">Assets Manager</span>
-                    <span class="cm-version-badge">v1.0.8</span>
+                    <span class="cm-version-badge" id="cm-version-badge">v...</span>
                 </div>
                 <nav class="cm-nav-tabs">
                     <button class="cm-nav-btn active" data-tab="all">All</button>
@@ -134,6 +134,22 @@ app.registerExtension({
 
             const menu = document.createElement("div");
             menu.className = "cm-context-menu";
+
+            // Toggle favorite
+            const favBtn = document.createElement("button");
+            favBtn.className = "cm-context-menu-item";
+            favBtn.innerHTML = `<span class="pi ${file.is_favorite ? 'pi-bookmark-fill' : 'pi-bookmark'}"></span> ${file.is_favorite ? 'Remove from favorites' : 'Add to favorites'}`;
+            favBtn.onclick = async (ev) => {
+                ev.stopPropagation();
+                dismissContextMenu();
+                await toggleFavorite(file);
+            };
+            menu.appendChild(favBtn);
+
+            // Separator
+            const favSep = document.createElement("div");
+            favSep.className = "cm-context-menu-separator";
+            menu.appendChild(favSep);
 
             // Load workflow
             const loadBtn = document.createElement("button");
@@ -313,6 +329,20 @@ app.registerExtension({
             }
         };
 
+        // Toggle favorite helper
+        const toggleFavorite = async (file) => {
+            const res = await fetch("/dnh-assetmanager/favorite", {
+                method: "POST",
+                headers: { "Content-Type": "application/json" },
+                body: JSON.stringify({ path: file.full_path })
+            });
+            if (res.ok) {
+                file.is_favorite = !file.is_favorite;
+                // Re-render to reflect change (or remove card if filtering favorites)
+                update();
+            }
+        };
+
         const container = el.querySelector("#cm-container");
         const statsText = el.querySelector("#cm-asset-stats");
         const activeFiltersEl = el.querySelector("#cm-active-filters");
@@ -336,6 +366,15 @@ app.registerExtension({
             }
         };
         loadTags();
+
+        // Fetch version from pyproject.toml via backend
+        fetch("/dnh-assetmanager/version")
+            .then(r => r.json())
+            .then(data => {
+                const badge = el.querySelector("#cm-version-badge");
+                if (badge && data.version) badge.textContent = `v${data.version}`;
+            })
+            .catch(() => {});
 
         // Render active filter chips
         const renderActiveFilters = () => {
@@ -499,9 +538,14 @@ app.registerExtension({
                     ? f.filename.substring(0, 17) + "..."
                     : f.filename;
 
+                const createdDate = f.created_at
+                    ? new Date(f.created_at * 1000).toLocaleDateString(undefined, { month: "short", day: "numeric", year: "numeric" })
+                    : "";
+
                 card.innerHTML = `
-                    ${f.is_favorite ? `<div class="cm-star-badge">⭐</div>` : ''}
+                    <button class="cm-fav-btn${f.is_favorite ? ' active' : ''}" title="${f.is_favorite ? 'Remove from favorites' : 'Add to favorites'}"><span class="pi ${f.is_favorite ? 'pi-bookmark-fill' : 'pi-bookmark'}"></span></button>
                     ${f.has_workflow ? `<div class="cm-workflow-badge" title="Has embedded workflow"><span class="pi pi-sitemap"></span></div>` : ''}
+                    ${createdDate ? `<div class="cm-date-badge">${createdDate}</div>` : ''}
                     <img src="${f.url}" loading="lazy" />
                     <div class="cm-card-overlay">
                         <span class="cm-overlay-name" title="${f.filename}">${truncName}</span>
@@ -511,6 +555,10 @@ app.registerExtension({
                         </div>
                     </div>
                 `;
+                card.querySelector(".cm-fav-btn").onclick = (e) => {
+                    e.stopPropagation();
+                    toggleFavorite(f);
+                };
                 card.onclick = async () => {
                     const blob = await (await fetch(f.url)).blob();
                     await app.handleFile(blob);
@@ -703,10 +751,10 @@ app.registerExtension({
             menu.style.top = `${y}px`;
         };
 
-        // Left-click: cycle to next sort option. Right-click: open full menu.
+        // Left-click: toggle sort order (asc/desc). Right-click: open full menu.
         el.querySelector("#cm-sort").onclick = () => {
-            const currentIdx = sortOptions.findIndex(o => o.value === sortBy);
-            sortBy = sortOptions[(currentIdx + 1) % sortOptions.length].value;
+            const [field, dir] = sortBy.split("_");
+            sortBy = `${field}_${dir === "desc" ? "asc" : "desc"}`;
             updateSortButton();
             update();
         };
