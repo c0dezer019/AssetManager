@@ -1,4 +1,5 @@
 import { app } from "../../scripts/app.js";
+import { api } from "../../scripts/api.js";
 import { FolderSelector } from "./folderSelector.js";
 
 app.registerExtension({
@@ -49,6 +50,7 @@ app.registerExtension({
                     <button id="cm-sort" class="cm-tool-btn" title="Sort by date"><span class="pi pi-sort-alt"></span></button>
                     <button id="cm-workflow-filter" class="cm-tool-btn" title="Show only assets with workflows"><span class="pi pi-sitemap"></span></button>
                     <button id="cm-fav-toggle" class="cm-tool-btn" title="Show favorites only"><span class="pi pi-bookmark"></span></button>
+                    <button id="cm-nsfw-toggle" class="cm-tool-btn active" title="NSFW hidden"><span class="pi pi-eye-slash"></span></button>
                 </div>
             </div>
 
@@ -389,7 +391,6 @@ app.registerExtension({
                 const shortName = l.split(/[\\/]/).pop();
                 filters.push({ label: `LoRA: ${shortName}`, clear: () => { activeLoraFilters.delete(l); } });
             });
-            if (!hideNsfw) filters.push({ label: "NSFW: shown", clear: () => { hideNsfw = true; } });
             if (showFavorites) filters.push({ label: "Favorites", clear: () => { showFavorites = false; el.querySelector("#cm-fav-toggle").classList.remove("active"); } });
             if (workflowOnly) filters.push({ label: "Workflows only", clear: () => { workflowOnly = false; el.querySelector("#cm-workflow-filter").classList.remove("active"); } });
             if (sortBy !== "date_desc") {
@@ -406,7 +407,7 @@ app.registerExtension({
             });
 
             // Update filter button active state
-            const hasFilters = activeUtility !== "all" || activeModelFilters.size > 0 || activeLoraFilters.size > 0 || !hideNsfw;
+            const hasFilters = activeUtility !== "all" || activeModelFilters.size > 0 || activeLoraFilters.size > 0;
             el.querySelector("#cm-filter").classList.toggle("active", hasFilters);
         };
 
@@ -661,17 +662,6 @@ app.registerExtension({
                 });
             }
 
-            // Section: NSFW toggle
-            const sep3 = document.createElement("div");
-            sep3.className = "cm-context-menu-separator";
-            menu.appendChild(sep3);
-
-            const nsfwBtn = document.createElement("button");
-            nsfwBtn.className = "cm-context-menu-item";
-            nsfwBtn.innerHTML = `${hideNsfw ? '<span class="pi pi-eye-slash"></span> ' : '<span class="pi pi-eye"></span> '}${hideNsfw ? "NSFW hidden" : "NSFW visible"}`;
-            nsfwBtn.onclick = (ev) => { ev.stopPropagation(); hideNsfw = !hideNsfw; dismissContextMenu(); update(); };
-            menu.appendChild(nsfwBtn);
-
             document.body.appendChild(menu);
             activeContextMenu = menu;
 
@@ -691,6 +681,16 @@ app.registerExtension({
             showFavorites = !showFavorites;
             el.querySelector("#cm-fav-toggle").classList.toggle("active", showFavorites);
             el.querySelector("#cm-fav-toggle").title = showFavorites ? "Showing favorites only" : "Show favorites only";
+            update();
+        };
+
+        // NSFW toggle
+        el.querySelector("#cm-nsfw-toggle").onclick = () => {
+            hideNsfw = !hideNsfw;
+            const btn = el.querySelector("#cm-nsfw-toggle");
+            btn.classList.toggle("active", hideNsfw);
+            btn.querySelector("span").className = hideNsfw ? "pi pi-eye-slash" : "pi pi-eye";
+            btn.title = hideNsfw ? "NSFW hidden" : "NSFW visible";
             update();
         };
 
@@ -770,6 +770,13 @@ app.registerExtension({
         };
 
         update();
+
+        // Auto-refresh when backend detects file changes (debounced 300ms)
+        let watcherTimeout = null;
+        api.addEventListener("dnh-assets-changed", () => {
+            clearTimeout(watcherTimeout);
+            watcherTimeout = setTimeout(() => update(), 300);
+        });
       }
     });
   }

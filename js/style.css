@@ -280,6 +280,13 @@
     border-color: rgba(0, 132, 255, 0.3);
 }
 
+/* NSFW toggle - uses warning color when actively hiding */
+#cm-nsfw-toggle.active {
+    color: #ff6b6b;
+    background: rgba(255, 107, 107, 0.1);
+    border-color: rgba(255, 107, 107, 0.3);
+}
+
 /* Settings Toggle Button */
 .cm-icon-only-btn {
     background: transparent;
