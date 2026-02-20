@@ -11,6 +11,7 @@ Published to the Comfy Registry under publisher `c0dezer019`.
 - **Multi-source scanning** — browses ComfyUI's input directory, output directory, and any number of user-configured custom folders
 - **Configurable output path** — override the default ComfyUI output directory in settings
 - **Workflow loading** — click any image to load its embedded ComfyUI workflow, or right-click for more options
+- **Integrated image viewer** — double-click any image to open it in a fullscreen viewer with zoom, pan, and navigation
 - **External viewer** — open images in your system's default image viewer via the context menu
 - **Live file watching** — the sidebar updates automatically when files are added, deleted, or moved in your scanned directories
 
@@ -87,9 +88,29 @@ date:"Jan 15" model:sdxl
 - **Filter by favorites** — click the bookmark toolbar button to show only favorited images
 - Favorites are persisted in `config.json`
 
+### Image Viewer
+Double-click any image card (or choose **View image** from the context menu) to open the integrated fullscreen viewer.
+
+- **Navigation** — previous/next buttons, left/right arrow keys, or drag/swipe the image horizontally (with ghost previews of adjacent images)
+- **Zoom** — mouse wheel, `+`/`-` keys, or click the zoom percentage chip for a preset menu (25 % – 500 %)
+- **Pan** — drag the image when zoomed in
+- **Details panel** — press `I` or click the info button to toggle a collapsible side panel showing File Info and Workflow data; individual values can be copied to clipboard
+- **Fullscreen** — press `F` or click the expand button to fill the entire browser window
+- **Keyboard shortcuts**
+
+| Key | Action |
+|-----|--------|
+| `Esc` | Close viewer |
+| `←` / `→` | Previous / next image |
+| `+` / `-` | Zoom in / out |
+| `0` | Reset zoom |
+| `I` | Toggle details panel |
+| `F` | Toggle fullscreen |
+
 ### Context Menu (Right-Click)
 Right-click any image card for quick actions:
 - **Add/remove favorites**
+- **View image** — open in the integrated image viewer
 - **Load workflow** — load the image's embedded workflow into ComfyUI
 - **Open in external viewer** — open the file in your system's default image viewer
 - **Edit metadata** (PNG only) — open the metadata editor panel
@@ -128,9 +149,15 @@ No build step required — JavaScript files are served directly.
 
 This extension has **no Python nodes** — `NODE_CLASS_MAPPINGS` is empty. It consists of:
 
-- **`__init__.py`** — Backend HTTP routes registered on ComfyUI's `PromptServer` under the `/dnh-assetmanager/` prefix
-- **`js/sidebar.js`** — Frontend sidebar extension registered as `DefinitelyNotHuman.AssetManager`
+- **`__init__.py`** — Registers all HTTP routes at import time
+- **`routes/`** — Route handlers split by concern (`favorites.py`, `files.py`, `folders.py`, `history.py`, `metadata.py`, `settings.py`, `tags.py`)
+- **`utils/`** — Shared utilities (`config.py`, `helpers.py`, `metadata.py`, `png_io.py`, `search.py`, `security.py`, `watcher.py`)
+- **`js/sidebar.js`** — Frontend entry point; registers the sidebar extension as `DefinitelyNotHuman.AssetManager`
+- **`js/components/`** — UI components (`cardRenderer.js`, `contextMenu.js`, `filterChips.js`, `filterMenu.js`, `imageViewer.js`, `infoPanel.js`, `settingsPanel.js`, `sortMenu.js`)
 - **`js/folderSelector.js`** — Modal directory picker component
+- **`js/api.js`** — API call helpers
+- **`js/state.js`** — Shared sidebar state
+- **`js/template.js`** — Sidebar HTML template
 - **`js/style.css`** — All styles using the `cm-` class prefix
 
 ## API Endpoints
