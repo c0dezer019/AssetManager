@@ -122,9 +122,9 @@ export function attachSubmenu(parentItem, items, cancelParentHide = null) {
  * Show the right-click context menu for an asset card.
  * @param {MouseEvent} e
  * @param {Object} file - The file data object from the API
- * @param {Object} callbacks - { toggleFavorite, openInfoPanel, update }
+ * @param {Object} callbacks - { toggleFavorite, openInfoPanel, update, el, openViewer }
  */
-export function showContextMenu(e, file, { toggleFavorite, openInfoPanel, update, el }) {
+export function showContextMenu(e, file, { toggleFavorite, openInfoPanel, update, el, openViewer }) {
     e.preventDefault();
     e.stopPropagation();
     dismissContextMenu();
@@ -160,6 +160,17 @@ export function showContextMenu(e, file, { toggleFavorite, openInfoPanel, update
         await app.handleFile(blob);
     };
     menu.appendChild(loadBtn);
+
+    // View image in viewer
+    const viewBtn = document.createElement("button");
+    viewBtn.className = "cm-context-menu-item";
+    viewBtn.innerHTML = `<span class="pi pi-eye"></span> View image`;
+    viewBtn.onclick = (ev) => {
+        ev.stopPropagation();
+        dismissContextMenu();
+        openViewer(file);
+    };
+    menu.appendChild(viewBtn);
 
     // Open in external viewer
     const openBtn = document.createElement("button");

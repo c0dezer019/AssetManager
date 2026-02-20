@@ -958,3 +958,562 @@ textarea.cm-info-input {
     border-color: #0084ff;
     box-shadow: 0 0 0 1px #0084ff;
 }
+
+/* ─── Image Viewer ─── */
+.cm-viewer-overlay {
+    display: none;
+    position: fixed;
+    top: 0;
+    left: 0;
+    width: 100%;
+    height: 100%;
+    background: rgba(0, 0, 0, 0.92);
+    z-index: 10020;
+}
+
+.cm-viewer-overlay.visible {
+    display: block;
+}
+
+/* Top bar — overlays image area, visible on hover */
+.cm-viewer-topbar {
+    position: absolute;
+    top: 0;
+    left: 0;
+    right: 0;
+    display: flex;
+    align-items: center;
+    gap: 12px;
+    padding: 12px 16px;
+    background: linear-gradient(to bottom, rgba(0, 0, 0, 0.8) 0%, rgba(0, 0, 0, 0.4) 70%, transparent 100%);
+    z-index: 10022;
+    opacity: 0;
+    transition: opacity 0.25s ease;
+    pointer-events: none;
+}
+
+.cm-viewer-body:hover .cm-viewer-topbar {
+    opacity: 1;
+    pointer-events: auto;
+}
+
+.cm-viewer-topbar-name {
+    font-size: 14px;
+    font-weight: 600;
+    color: #ddd;
+    white-space: nowrap;
+    overflow: hidden;
+    text-overflow: ellipsis;
+    flex: 1;
+    min-width: 0;
+}
+
+.cm-viewer-topbar-size {
+    font-size: 12px;
+    color: rgba(255, 255, 255, 0.5);
+    flex-shrink: 0;
+    font-variant-numeric: tabular-nums;
+    position: absolute;
+    left: 50%;
+    transform: translateX(-50%);
+}
+
+.cm-viewer-topbar-counter {
+    font-size: 13px;
+    color: #666;
+    font-variant-numeric: tabular-nums;
+    flex-shrink: 0;
+}
+
+.cm-viewer-topbar-actions {
+    display: flex;
+    gap: 4px;
+    flex-shrink: 0;
+}
+
+.cm-viewer-panel-toggle,
+.cm-viewer-fullscreen-toggle,
+.cm-viewer-close {
+    background: rgba(255, 255, 255, 0.06);
+    border: none;
+    color: #aaa;
+    width: 34px;
+    height: 34px;
+    border-radius: 8px;
+    display: flex;
+    align-items: center;
+    justify-content: center;
+    cursor: pointer;
+    font-size: 15px;
+    transition: background 0.2s, color 0.2s;
+}
+
+.cm-viewer-panel-toggle:hover,
+.cm-viewer-fullscreen-toggle:hover,
+.cm-viewer-close:hover {
+    background: rgba(255, 255, 255, 0.12);
+    color: #fff;
+}
+
+.cm-viewer-panel-toggle.active,
+.cm-viewer-fullscreen-toggle.active {
+    color: #0084ff;
+    background: rgba(0, 132, 255, 0.12);
+}
+
+/* Fullscreen mode — hides all chrome */
+.cm-viewer-overlay.fullscreen .cm-viewer-topbar,
+.cm-viewer-overlay.fullscreen .cm-viewer-nav {
+    opacity: 0 !important;
+    pointer-events: none !important;
+}
+
+.cm-viewer-overlay.fullscreen .cm-viewer-img-container {
+    padding: 0;
+}
+
+/* Body: image + side panel */
+.cm-viewer-body {
+    display: flex;
+    position: relative;
+    width: 100%;
+    height: 100%;
+    overflow: hidden;
+}
+
+/* Nav arrows */
+.cm-viewer-nav {
+    position: absolute;
+    top: 50%;
+    transform: translateY(-50%);
+    z-index: 10022;
+    background: rgba(255, 255, 255, 0.06);
+    border: none;
+    color: #888;
+    width: 44px;
+    height: 44px;
+    border-radius: 50%;
+    display: flex;
+    align-items: center;
+    justify-content: center;
+    cursor: pointer;
+    font-size: 18px;
+    opacity: 0;
+    transition: opacity 0.2s, background 0.2s, color 0.2s;
+}
+
+.cm-viewer-body:hover .cm-viewer-nav {
+    opacity: 1;
+}
+
+.cm-viewer-nav:hover {
+    background: rgba(255, 255, 255, 0.15);
+    color: #fff;
+}
+
+.cm-viewer-prev {
+    left: 16px;
+}
+
+.cm-viewer-next {
+    right: 16px;
+}
+
+/* Zoom chip */
+.cm-viewer-zoom-chip {
+    position: absolute;
+    bottom: 16px;
+    left: 50%;
+    transform: translateX(-50%);
+    z-index: 10022;
+    display: flex;
+    align-items: center;
+    gap: 6px;
+    background: rgba(0, 0, 0, 0.7);
+    border: 1px solid rgba(255, 255, 255, 0.1);
+    border-radius: 20px;
+    padding: 4px 12px;
+    opacity: 0;
+    transition: opacity 0.25s ease;
+    pointer-events: none;
+}
+
+.cm-viewer-body:hover .cm-viewer-zoom-chip {
+    opacity: 1;
+    pointer-events: auto;
+}
+
+.cm-viewer-zoom-value {
+    font-size: 12px;
+    color: #aaa;
+    font-variant-numeric: tabular-nums;
+    user-select: none;
+    cursor: pointer;
+    transition: color 0.2s;
+}
+
+.cm-viewer-zoom-value:hover {
+    color: #fff;
+}
+
+.cm-viewer-zoom-reset {
+    background: none;
+    border: none;
+    color: #666;
+    cursor: pointer;
+    font-size: 11px;
+    padding: 0;
+    display: flex;
+    align-items: center;
+    transition: color 0.2s;
+}
+
+.cm-viewer-zoom-reset:hover {
+    color: #fff;
+}
+
+/* Zoom preset menu */
+.cm-viewer-zoom-menu {
+    position: absolute;
+    bottom: calc(100% + 8px);
+    left: 50%;
+    transform: translateX(-50%);
+    background: rgba(20, 20, 20, 0.95);
+    border: 1px solid rgba(255, 255, 255, 0.12);
+    border-radius: 10px;
+    padding: 4px;
+    display: none;
+    flex-direction: column;
+    min-width: 80px;
+    backdrop-filter: blur(12px);
+    box-shadow: 0 8px 24px rgba(0, 0, 0, 0.5);
+}
+
+.cm-viewer-zoom-menu.open {
+    display: flex;
+}
+
+.cm-viewer-zoom-menu-item {
+    background: none;
+    border: none;
+    color: #aaa;
+    font-size: 12px;
+    font-variant-numeric: tabular-nums;
+    padding: 6px 14px;
+    border-radius: 6px;
+    cursor: pointer;
+    text-align: center;
+    transition: background 0.15s, color 0.15s;
+}
+
+.cm-viewer-zoom-menu-item:hover {
+    background: rgba(255, 255, 255, 0.1);
+    color: #fff;
+}
+
+.cm-viewer-zoom-menu-item.active {
+    color: #0084ff;
+}
+
+/* Image container */
+.cm-viewer-img-container {
+    flex: 1;
+    display: flex;
+    align-items: center;
+    justify-content: center;
+    overflow: hidden;
+    padding: 16px 72px;
+    box-sizing: border-box;
+    min-width: 0;
+}
+
+.cm-viewer-img {
+    max-width: 100%;
+    max-height: 100%;
+    object-fit: contain;
+    user-select: none;
+    transition: transform 0.1s ease-out;
+}
+
+/* ─── Side Panel ─── */
+.cm-viewer-panel {
+    width: 0;
+    overflow: hidden;
+    background: #111;
+    border-left: 1px solid #222;
+    flex-shrink: 0;
+    transition: width 0.25s ease;
+    display: flex;
+    flex-direction: column;
+    padding-top: 58px;
+}
+
+.cm-viewer-panel.open {
+    width: 340px;
+    overflow-y: auto;
+}
+
+/* Collapsible sections */
+.cm-viewer-section {
+    border-bottom: 1px solid #222;
+}
+
+.cm-viewer-section-header {
+    display: flex;
+    align-items: center;
+    gap: 8px;
+    width: 100%;
+    padding: 12px 16px;
+    background: none;
+    border: none;
+    color: #bbb;
+    font-size: 13px;
+    font-weight: 600;
+    cursor: pointer;
+    text-align: left;
+    transition: background 0.15s, color 0.15s;
+}
+
+.cm-viewer-section-header:hover {
+    background: rgba(255, 255, 255, 0.04);
+    color: #eee;
+}
+
+.cm-viewer-section-chevron {
+    font-size: 11px;
+    color: #555;
+    width: 14px;
+    text-align: center;
+    flex-shrink: 0;
+    transition: color 0.15s;
+}
+
+.cm-viewer-section-header:hover .cm-viewer-section-chevron {
+    color: #999;
+}
+
+.cm-viewer-section-body {
+    display: none;
+    padding: 0 16px 14px;
+    flex-direction: column;
+    gap: 6px;
+}
+
+.cm-viewer-section-body.expanded {
+    display: flex;
+}
+
+/* Metadata rows */
+.cm-viewer-row {
+    display: flex;
+    align-items: baseline;
+    gap: 8px;
+    padding: 5px 0;
+    border-bottom: 1px solid rgba(255, 255, 255, 0.03);
+}
+
+.cm-viewer-row:last-child {
+    border-bottom: none;
+}
+
+.cm-viewer-row-label {
+    font-size: 12px;
+    font-weight: 600;
+    color: #777;
+    white-space: nowrap;
+    flex-shrink: 0;
+}
+
+.cm-viewer-row-value {
+    font-size: 12px;
+    color: #ccc;
+    text-align: right;
+    overflow: hidden;
+    text-overflow: ellipsis;
+    white-space: nowrap;
+    min-width: 0;
+    flex: 1;
+    font-family: monospace;
+}
+
+.cm-viewer-row-value.cm-viewer-truncated {
+    cursor: pointer;
+    text-decoration-style: dotted;
+}
+
+.cm-viewer-row-value.cm-viewer-truncated:hover {
+    color: #fff;
+}
+
+.cm-viewer-row-value.cm-viewer-expanded {
+    white-space: pre-wrap;
+    word-break: break-all;
+    text-align: left;
+}
+
+/* Copy buttons */
+.cm-viewer-copy-btn {
+    background: none;
+    border: none;
+    color: #444;
+    cursor: pointer;
+    padding: 2px 4px;
+    border-radius: 4px;
+    font-size: 11px;
+    flex-shrink: 0;
+    transition: color 0.15s, background 0.15s;
+    line-height: 1;
+}
+
+.cm-viewer-copy-btn:hover {
+    color: #ccc;
+    background: rgba(255, 255, 255, 0.08);
+}
+
+/* Workflow nodes */
+.cm-viewer-node {
+    background: rgba(255, 255, 255, 0.03);
+    border: 1px solid #1e1e1e;
+    border-radius: 6px;
+    padding: 8px 10px;
+}
+
+.cm-viewer-node + .cm-viewer-node {
+    margin-top: 6px;
+}
+
+.cm-viewer-node-title {
+    display: flex;
+    align-items: center;
+    justify-content: space-between;
+    gap: 8px;
+    font-size: 12px;
+    font-weight: 600;
+    color: #aaa;
+    margin-bottom: 4px;
+    padding-bottom: 4px;
+    border-bottom: 1px solid #1e1e1e;
+}
+
+.cm-viewer-copy-node {
+    font-size: 13px;
+    color: #4a9;
+    padding: 3px 6px;
+    border: 1px solid rgba(68, 170, 153, 0.25);
+    border-radius: 5px;
+    background: rgba(68, 170, 153, 0.06);
+}
+
+.cm-viewer-copy-node:hover {
+    color: #5cb;
+    border-color: rgba(68, 170, 153, 0.5);
+    background: rgba(68, 170, 153, 0.12);
+}
+
+.cm-viewer-empty {
+    font-size: 12px;
+    color: #555;
+    padding: 4px 0;
+    font-style: italic;
+}
+
+/* ─── Carousel Ghost Previews ─── */
+.cm-viewer-carousel-ghost {
+    display: none;
+    position: absolute;
+    top: 0;
+    bottom: 0;
+    width: 40%;
+    align-items: center;
+    justify-content: center;
+    z-index: 10021;
+    pointer-events: none;
+    opacity: 0.5;
+}
+
+.cm-viewer-carousel-ghost img {
+    max-width: 80%;
+    max-height: 70%;
+    object-fit: contain;
+    user-select: none;
+}
+
+.cm-viewer-carousel-prev {
+    left: 0;
+    transform: translateX(-50%);
+    -webkit-mask-image: linear-gradient(to right, transparent 10%, rgba(0, 0, 0, 0.6));
+    mask-image: linear-gradient(to right, transparent 10%, rgba(0, 0, 0, 0.6));
+}
+
+.cm-viewer-carousel-next {
+    right: 0;
+    transform: translateX(50%);
+    -webkit-mask-image: linear-gradient(to left, transparent 10%, rgba(0, 0, 0, 0.6));
+    mask-image: linear-gradient(to left, transparent 10%, rgba(0, 0, 0, 0.6));
+}
+
+/* Show ghosts when carousel is active */
+.cm-carousel-active .cm-viewer-carousel-ghost {
+    display: flex;
+}
+
+/* Reposition nav arrows when carousel is active */
+.cm-carousel-active .cm-viewer-prev {
+    left: calc(20% - 60px);
+}
+
+.cm-carousel-active .cm-viewer-next {
+    right: calc(20% - 60px);
+}
+
+/* Hide carousel in fullscreen */
+.cm-viewer-overlay.fullscreen .cm-viewer-carousel-ghost {
+    display: none !important;
+}
+
+/* Slide animations */
+@keyframes cm-slide-out-left {
+    from { transform: translate(0, 0); opacity: 1; }
+    to { transform: translate(-100%, 0); opacity: 0; }
+}
+
+@keyframes cm-slide-out-right {
+    from { transform: translate(0, 0); opacity: 1; }
+    to { transform: translate(100%, 0); opacity: 0; }
+}
+
+@keyframes cm-slide-in-from-right {
+    from { transform: translate(60%, 0); opacity: 0; }
+    to { transform: translate(0, 0); opacity: 1; }
+}
+
+@keyframes cm-slide-in-from-left {
+    from { transform: translate(-60%, 0); opacity: 0; }
+    to { transform: translate(0, 0); opacity: 1; }
+}
+
+.cm-viewer-img-container.cm-slide-out-left {
+    animation: cm-slide-out-left 0.25s ease forwards;
+}
+
+.cm-viewer-img-container.cm-slide-out-right {
+    animation: cm-slide-out-right 0.25s ease forwards;
+}
+
+.cm-viewer-img-container.cm-slide-in-from-right {
+    animation: cm-slide-in-from-right 0.25s ease forwards;
+}
+
+.cm-viewer-img-container.cm-slide-in-from-left {
+    animation: cm-slide-in-from-left 0.25s ease forwards;
+}
+
+/* Disable transitions during carousel drag */
+.cm-carousel-dragging .cm-viewer-img,
+.cm-carousel-dragging .cm-viewer-carousel-ghost {
+    transition: none !important;
+}
+
+.cm-carousel-dragging .cm-viewer-img-container {
+    transition: none !important;
+}

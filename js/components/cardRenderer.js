@@ -8,9 +8,9 @@ import { app } from "../../../scripts/app.js";
  * Render asset cards into the container.
  * @param {HTMLElement} container
  * @param {Array} files - Array of file data objects from the API
- * @param {Object} callbacks - { toggleFavorite, showContextMenu }
+ * @param {Object} callbacks - { toggleFavorite, showContextMenu, openViewer }
  */
-export function renderCards(container, files, { toggleFavorite, showContextMenu }) {
+export function renderCards(container, files, { toggleFavorite, showContextMenu, openViewer }) {
     container.innerHTML = "";
 
     files.forEach(f => {
@@ -45,6 +45,10 @@ export function renderCards(container, files, { toggleFavorite, showContextMenu 
         card.onclick = async () => {
             const blob = await (await fetch(f.url)).blob();
             await app.handleFile(blob);
+        };
+        card.ondblclick = (e) => {
+            e.preventDefault();
+            openViewer(f);
         };
         card.oncontextmenu = (e) => showContextMenu(e, f);
         container.appendChild(card);

@@ -8,6 +8,7 @@ import { postFavorite } from "./api.js";
 import { showContextMenu } from "./components/contextMenu.js";
 import { initInfoPanel } from "./components/infoPanel.js";
 import { renderCards } from "./components/cardRenderer.js";
+import { ImageViewer } from "./components/imageViewer.js";
 import { renderActiveFilters } from "./components/filterChips.js";
 import { showFilterMenu } from "./components/filterMenu.js";
 import { showSortMenu, updateSortButton } from "./components/sortMenu.js";
@@ -35,9 +36,19 @@ app.registerExtension({
         const tabLabels = { all: "All", input: "Inputs", output: "Outputs", custom: "Custom" };
 
         // Initialize sub-components
+        const viewer = new ImageViewer();
         const folderSelector = new FolderSelector(() => {});
         const { openInfoPanel, closeInfoPanel } = initInfoPanel(el);
         const { loadSettings } = initSettingsPanel(el, folderSelector, () => update());
+
+        // Current file list for viewer navigation
+        let currentFiles = [];
+
+        // Open image in viewer
+        const openViewer = (file) => {
+            const index = currentFiles.indexOf(file);
+            viewer.open(currentFiles, index >= 0 ? index : 0);
+        };
 
         // Toggle favorite helper
         const toggleFavorite = async (file) => {
@@ -76,9 +87,11 @@ app.registerExtension({
             closeInfoPanel();
             renderActiveFilters(el, activeFiltersEl, update, () => updateSortButton(el));
             const data = await fetchHistory(params);
+            currentFiles = data.files;
             renderCards(container, data.files, {
                 toggleFavorite,
-                showContextMenu: (e, f) => showContextMenu(e, f, { toggleFavorite, openInfoPanel, update, el }),
+                showContextMenu: (e, f) => showContextMenu(e, f, { toggleFavorite, openInfoPanel, update, el, openViewer }),
+                openViewer,
             });
             statsText.textContent = `assets: ${data.files.length}/${data.files.length} | ${tabLabels[state.activeTab] || state.activeTab}`;
         };
