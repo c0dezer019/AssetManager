@@ -11,7 +11,7 @@ import { dismissContextMenu, setActiveContextMenu } from "./contextMenu.js";
  * @param {HTMLElement} el - The sidebar root element
  * @param {Function} update - Callback to refresh the grid
  */
-export function showFilterMenu(e, el, update) {
+export function showFilterMenu(e, el, update, anchorEl) {
     e.stopPropagation();
     dismissContextMenu();
 
@@ -45,7 +45,7 @@ export function showFilterMenu(e, el, update) {
             dismissContextMenu();
             update();
             // Re-open the menu after a tick so the user can keep selecting
-            setTimeout(() => el.querySelector("#cm-filter").click(), 0);
+            setTimeout(() => (anchorEl || el.querySelector("#cm-filter")).click(), 0);
         };
         return btn;
     };
@@ -104,7 +104,7 @@ export function showFilterMenu(e, el, update) {
     setActiveContextMenu(menu);
 
     // Position below the filter button
-    const btnRect = el.querySelector("#cm-filter").getBoundingClientRect();
+    const btnRect = (anchorEl || el.querySelector("#cm-filter")).getBoundingClientRect();
     const menuRect = menu.getBoundingClientRect();
     let x = btnRect.left;
     let y = btnRect.bottom + 4;

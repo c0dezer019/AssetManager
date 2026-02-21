@@ -37,6 +37,7 @@ export const sidebarTemplate = `
         <span id="cm-asset-stats" class="cm-stats-text">assets: --/-- | All</span>
         <div id="cm-active-filters" class="cm-active-filters"></div>
     </div>
+    <button id="cm-grid-view" class="cm-grid-view-btn" title="Open grid view"><span class="pi pi-th-large"></span> Grid View</button>
 
     <section id="cm-advanced-panel" class="cm-advanced-panel">
       <div class="cm-settings-group">

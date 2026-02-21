@@ -16,6 +16,7 @@ export const state = {
     activeLoraFilters: new Set(),
     selectedFile: null,
     currentRating: 0,
+    viewerMode: "carousel", // "carousel" | "grid"
 };
 
 const _listeners = [];

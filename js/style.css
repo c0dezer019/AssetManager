@@ -119,6 +119,32 @@
     color: #666;
 }
 
+.cm-grid-view-btn {
+    width: 100%;
+    display: flex;
+    align-items: center;
+    justify-content: center;
+    gap: 6px;
+    padding: 6px 0;
+    background: #1d1d1d;
+    border: 1px solid #2a2a2a;
+    border-radius: 8px;
+    color: #888;
+    font-size: 12px;
+    cursor: pointer;
+    transition: all 0.15s;
+}
+
+.cm-grid-view-btn:hover {
+    color: #fff;
+    background: #252525;
+    border-color: #3a3a3a;
+}
+
+.cm-grid-view-btn .pi {
+    font-size: 12px;
+}
+
 .cm-asset-grid {
     flex-grow: 1;
     display: grid;
@@ -1031,6 +1057,7 @@ textarea.cm-info-input {
     flex-shrink: 0;
 }
 
+.cm-viewer-grid-toggle,
 .cm-viewer-panel-toggle,
 .cm-viewer-fullscreen-toggle,
 .cm-viewer-close {
@@ -1048,6 +1075,7 @@ textarea.cm-info-input {
     transition: background 0.2s, color 0.2s;
 }
 
+.cm-viewer-grid-toggle:hover,
 .cm-viewer-panel-toggle:hover,
 .cm-viewer-fullscreen-toggle:hover,
 .cm-viewer-close:hover {
@@ -1055,6 +1083,7 @@ textarea.cm-info-input {
     color: #fff;
 }
 
+.cm-viewer-grid-toggle.active,
 .cm-viewer-panel-toggle.active,
 .cm-viewer-fullscreen-toggle.active {
     color: #0084ff;
@@ -1516,4 +1545,259 @@ textarea.cm-info-input {
 
 .cm-carousel-dragging .cm-viewer-img-container {
     transition: none !important;
+}
+
+/* ─── Grid View Mode ─── */
+.cm-viewer-grid {
+    display: none;
+    position: absolute;
+    top: 0;
+    left: 0;
+    right: 0;
+    bottom: 0;
+    z-index: 10023;
+    background: rgba(0, 0, 0, 0.96);
+    padding: 64px 24px 24px;
+    overflow-y: auto;
+}
+
+/* Default: auto-calculated column count */
+.cm-viewer-grid-mode .cm-viewer-grid {
+    display: grid;
+    grid-template-columns: repeat(var(--grid-cols), 1fr);
+    grid-auto-rows: min-content;
+    gap: 10px;
+    align-content: start;
+}
+
+/* Slider override: switch to auto-fill with min thumb size */
+.cm-viewer-grid-mode .cm-viewer-grid.cm-grid-slider-active {
+    grid-template-columns: repeat(auto-fill, minmax(var(--grid-thumb-size, 150px), 1fr));
+}
+
+/* Grid top toolbar */
+.cm-viewer-grid-toolbar {
+    display: none;
+    position: absolute;
+    top: 0;
+    left: 0;
+    right: 0;
+    height: 52px;
+    z-index: 10024;
+    align-items: center;
+    justify-content: space-between;
+    padding: 0 20px;
+    background: #0f0f0f;
+    border-bottom: 1px solid #222;
+}
+
+.cm-viewer-grid-mode .cm-viewer-grid-toolbar {
+    display: flex;
+}
+
+.cm-viewer-grid-close {
+    background: rgba(255, 255, 255, 0.06);
+    border: none;
+    color: #aaa;
+    width: 38px;
+    height: 38px;
+    border-radius: 8px;
+    display: flex;
+    align-items: center;
+    justify-content: center;
+    cursor: pointer;
+    font-size: 15px;
+    transition: background 0.2s, color 0.2s;
+}
+
+.cm-viewer-grid-close:hover {
+    background: rgba(255, 255, 255, 0.12);
+    color: #fff;
+}
+
+.cm-viewer-grid-toolbar-center {
+    display: flex;
+    align-items: center;
+    gap: 6px;
+    flex: 1;
+    justify-content: center;
+    padding: 0 16px;
+}
+
+.cm-viewer-grid-search-wrapper {
+    position: relative;
+    max-width: 240px;
+    flex: 1;
+}
+
+.cm-viewer-grid-search-icon {
+    position: absolute;
+    left: 9px;
+    top: 50%;
+    transform: translateY(-50%);
+    color: #555;
+    font-size: 11px;
+    pointer-events: none;
+}
+
+.cm-viewer-grid-search {
+    width: 100%;
+    background: #1a1a1a;
+    border: 1px solid #2a2a2a;
+    border-radius: 6px;
+    padding: 6px 10px 6px 28px;
+    color: #ddd;
+    font-size: 12px;
+    outline: none;
+    transition: border-color 0.15s;
+}
+
+.cm-viewer-grid-search:focus {
+    border-color: #0084ff;
+}
+
+.cm-viewer-grid-search::placeholder {
+    color: #555;
+}
+
+.cm-viewer-grid-btn {
+    background: rgba(255, 255, 255, 0.06);
+    border: 1px solid transparent;
+    color: #888;
+    width: 32px;
+    height: 32px;
+    border-radius: 6px;
+    display: flex;
+    align-items: center;
+    justify-content: center;
+    cursor: pointer;
+    font-size: 13px;
+    flex-shrink: 0;
+    transition: background 0.15s, color 0.15s, border-color 0.15s;
+}
+
+.cm-viewer-grid-btn:hover {
+    background: rgba(255, 255, 255, 0.12);
+    color: #fff;
+}
+
+.cm-viewer-grid-btn.active {
+    color: #0084ff;
+    background: rgba(0, 132, 255, 0.12);
+    border-color: rgba(0, 132, 255, 0.3);
+}
+
+.cm-viewer-grid-nsfw.active {
+    color: #ff6b6b;
+    background: rgba(255, 107, 107, 0.1);
+    border-color: rgba(255, 107, 107, 0.3);
+}
+
+.cm-viewer-grid-toolbar-slider {
+    display: flex;
+    align-items: center;
+    gap: 10px;
+}
+
+.cm-viewer-grid-slider-icon {
+    font-size: 13px;
+    color: #555;
+}
+
+.cm-viewer-grid-slider {
+    -webkit-appearance: none;
+    appearance: none;
+    width: 180px;
+    height: 4px;
+    background: #333;
+    border-radius: 2px;
+    outline: none;
+    cursor: pointer;
+}
+
+.cm-viewer-grid-slider::-webkit-slider-thumb {
+    -webkit-appearance: none;
+    appearance: none;
+    width: 16px;
+    height: 16px;
+    border-radius: 50%;
+    background: #0084ff;
+    cursor: pointer;
+    border: none;
+    transition: transform 0.1s;
+}
+
+.cm-viewer-grid-slider::-webkit-slider-thumb:hover {
+    transform: scale(1.2);
+}
+
+.cm-viewer-grid-slider::-moz-range-thumb {
+    width: 16px;
+    height: 16px;
+    border-radius: 50%;
+    background: #0084ff;
+    cursor: pointer;
+    border: none;
+}
+
+/* Hide carousel elements in grid mode */
+.cm-viewer-grid-mode .cm-viewer-img-container,
+.cm-viewer-grid-mode .cm-viewer-carousel-ghost,
+.cm-viewer-grid-mode .cm-viewer-nav,
+.cm-viewer-grid-mode .cm-viewer-zoom-chip {
+    display: none !important;
+}
+
+.cm-viewer-grid-item {
+    aspect-ratio: 1 / 1;
+    border-radius: 8px;
+    overflow: hidden;
+    cursor: pointer;
+    position: relative;
+    border: 2px solid transparent;
+    background: #181818;
+    transition: border-color 0.15s, transform 0.15s;
+}
+
+.cm-viewer-grid-item:hover {
+    border-color: rgba(255, 255, 255, 0.2);
+    transform: scale(1.03);
+}
+
+.cm-viewer-grid-item.active {
+    border-color: #0084ff;
+    box-shadow: 0 0 0 1px #0084ff, 0 0 12px rgba(0, 132, 255, 0.25);
+}
+
+.cm-viewer-grid-item img {
+    width: 100%;
+    height: 100%;
+    object-fit: cover;
+    display: block;
+}
+
+.cm-viewer-grid-label {
+    position: absolute;
+    bottom: 0;
+    left: 0;
+    right: 0;
+    background: linear-gradient(transparent, rgba(0, 0, 0, 0.85));
+    color: #ccc;
+    font-size: 10px;
+    padding: 16px 6px 5px;
+    white-space: nowrap;
+    overflow: hidden;
+    text-overflow: ellipsis;
+    opacity: 0;
+    transition: opacity 0.2s;
+    pointer-events: none;
+}
+
+.cm-viewer-grid-item:hover .cm-viewer-grid-label {
+    opacity: 1;
+}
+
+/* Hide default topbar in grid mode — grid toolbar replaces it */
+.cm-viewer-grid-mode .cm-viewer-topbar {
+    display: none;
 }

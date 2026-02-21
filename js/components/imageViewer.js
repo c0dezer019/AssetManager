@@ -4,6 +4,8 @@
 
 import { copyToClipboard } from "./contextMenu.js";
 import { app } from "../../../scripts/app.js";
+import { state } from "../state.js";
+import { GridView } from "./gridView.js";
 
 const VALUE_TRUNCATE_LEN = 32;
 const ZOOM_PRESETS = [25, 50, 75, 100, 150, 200, 300, 500];
@@ -46,6 +48,7 @@ export class ImageViewer {
                     <span class="cm-viewer-topbar-size"></span>
                     <span class="cm-viewer-topbar-counter"></span>
                     <div class="cm-viewer-topbar-actions">
+                        <button class="cm-viewer-grid-toggle" title="Toggle grid view (G)"><span class="pi pi-th-large"></span></button>
                         <button class="cm-viewer-panel-toggle" title="Toggle details (I)"><span class="pi pi-info-circle"></span></button>
                         <button class="cm-viewer-fullscreen-toggle" title="Toggle fullscreen (F)"><span class="pi pi-expand"></span></button>
                         <button class="cm-viewer-close" title="Close (Esc)"><span class="pi pi-times"></span></button>
@@ -62,6 +65,26 @@ export class ImageViewer {
                     <span class="cm-viewer-zoom-value">100%</span>
                     <button class="cm-viewer-zoom-reset" title="Reset zoom (0)"><span class="pi pi-replay"></span></button>
                     <div class="cm-viewer-zoom-menu"></div>
+                </div>
+                <div class="cm-viewer-grid"></div>
+                <div class="cm-viewer-grid-toolbar">
+                    <button class="cm-viewer-grid-close" title="Close grid view"><span class="pi pi-times"></span></button>
+                    <div class="cm-viewer-grid-toolbar-center">
+                        <div class="cm-viewer-grid-search-wrapper">
+                            <span class="pi pi-search cm-viewer-grid-search-icon"></span>
+                            <input type="text" class="cm-viewer-grid-search" placeholder="Search..." />
+                        </div>
+                        <button class="cm-viewer-grid-btn cm-viewer-grid-filter" title="Filter options"><span class="pi pi-filter"></span></button>
+                        <button class="cm-viewer-grid-btn cm-viewer-grid-sort" title="Sort by date"><span class="pi pi-sort-alt"></span></button>
+                        <button class="cm-viewer-grid-btn cm-viewer-grid-workflow" title="Show only assets with workflows"><span class="pi pi-sitemap"></span></button>
+                        <button class="cm-viewer-grid-btn cm-viewer-grid-fav" title="Show favorites only"><span class="pi pi-bookmark"></span></button>
+                        <button class="cm-viewer-grid-btn cm-viewer-grid-nsfw${state.hideNsfw ? ' active' : ''}" title="${state.hideNsfw ? 'NSFW hidden' : 'NSFW visible'}"><span class="pi ${state.hideNsfw ? 'pi-eye-slash' : 'pi-eye'}"></span></button>
+                    </div>
+                    <div class="cm-viewer-grid-toolbar-slider">
+                        <span class="pi pi-search-minus cm-viewer-grid-slider-icon"></span>
+                        <input type="range" class="cm-viewer-grid-slider" min="80" max="400" value="160" step="10" />
+                        <span class="pi pi-search-plus cm-viewer-grid-slider-icon"></span>
+                    </div>
                 </div>
                 <div class="cm-viewer-panel">
                     <div class="cm-viewer-section">
@@ -98,6 +121,9 @@ export class ImageViewer {
         this.ghostPrevImg = this.ghostPrev.querySelector("img");
         this.ghostNextImg = this.ghostNext.querySelector("img");
 
+        // Grid view (delegated to GridView)
+        this.gridView = new GridView(this.overlay);
+
         ZOOM_PRESETS.forEach(pct => {
             const item = document.createElement("button");
             item.className = "cm-viewer-zoom-menu-item";
@@ -112,6 +138,9 @@ export class ImageViewer {
     _bindEvents() {
         // Close button
         this.overlay.querySelector(".cm-viewer-close").onclick = () => this.close();
+
+        // Grid toggle (delegates to GridView)
+        this.overlay.querySelector(".cm-viewer-grid-toggle").onclick = () => this.gridView.toggle();
 
         // Panel toggle
         this.overlay.querySelector(".cm-viewer-panel-toggle").onclick = () => this._togglePanel();
@@ -188,6 +217,7 @@ export class ImageViewer {
         // Click outside image/panel to close (suppress after carousel drag)
         this.overlay.querySelector(".cm-viewer-body").onclick = (e) => {
             if (this._suppressClick) { this._suppressClick = false; return; }
+            if (state.viewerMode === "grid") return;
             const clickedInteractive = e.target.closest(".cm-viewer-img, .cm-viewer-panel, .cm-viewer-nav, .cm-viewer-topbar, .cm-viewer-zoom-chip, .cm-viewer-carousel-ghost");
             if (!clickedInteractive) this.close();
         };
@@ -276,6 +306,7 @@ export class ImageViewer {
         // Keyboard shortcuts
         this._keyHandler = (e) => {
             if (!this.overlay.classList.contains("visible")) return;
+            if (e.target.tagName === "INPUT" || e.target.tagName === "TEXTAREA") return;
 
             switch (e.key) {
                 case "Escape":
@@ -311,6 +342,11 @@ export class ImageViewer {
                 case "F":
                     e.preventDefault();
                     this._toggleFullscreen();
+                    break;
+                case "g":
+                case "G":
+                    e.preventDefault();
+                    this.gridView.toggle();
                     break;
             }
         };
@@ -428,7 +464,7 @@ export class ImageViewer {
     }
 
     _updateCarousel() {
-        const shouldActivate = this.scale <= this.defaultScale && this.files.length > 1 && !this.isFullscreen;
+        const shouldActivate = this.scale <= this.defaultScale && this.files.length > 1 && !this.isFullscreen && state.viewerMode !== "grid";
         this.carouselActive = shouldActivate;
         this.overlay.classList.toggle("cm-carousel-active", shouldActivate);
 
@@ -501,6 +537,9 @@ export class ImageViewer {
         this.overlay.querySelector(".cm-viewer-next").style.display = showNav ? "" : "none";
 
         this._updateCarousel();
+
+        // Update grid thumbnail highlight
+        this.gridView.updateActiveThumb(this.currentIndex);
     }
 
     _createRow(label, value) {
@@ -639,17 +678,34 @@ export class ImageViewer {
         this.overlay.classList.add("visible");
     }
 
+    /**
+     * Open the viewer directly in grid mode.
+     * @param {Array} files - current file list
+     * @param {Function} onUpdate - async callback(searchQuery) => files[] to re-fetch with filters
+     */
+    openGrid(files, onUpdate) {
+        this.files = files;
+        this.currentIndex = 0;
+        this._resetZoom();
+        this._showCurrent();
+        this.overlay.classList.add("visible");
+        this.gridView.activate(this, onUpdate);
+        this._updateCarousel();
+    }
+
     close() {
-        this.overlay.classList.remove("visible", "fullscreen", "cm-carousel-active", "cm-carousel-dragging");
+        this.overlay.classList.remove("visible", "fullscreen", "cm-carousel-active", "cm-carousel-dragging", "cm-viewer-grid-mode");
         this.isFullscreen = false;
         this.carouselActive = false;
         this.isAnimating = false;
         this.carouselDragging = false;
+        state.viewerMode = "carousel";
         this._closeZoomMenu();
         this.img.src = "";
         this.ghostPrevImg.src = "";
         this.ghostNextImg.src = "";
         this.ghostPrev.style.transform = "";
         this.ghostNext.style.transform = "";
+        this.gridView.reset();
     }
 }

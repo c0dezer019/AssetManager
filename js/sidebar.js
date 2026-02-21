@@ -22,7 +22,7 @@ app.registerExtension({
     link.href = new URL("./style.css", import.meta.url).href;
     document.head.appendChild(link);
 
-    app.extensionManager.registerSidebarTab({
+    const tabDef = {
       id: "assetmanager.history.tab",
       icon: "pi pi-history",
       title: "History",
@@ -44,9 +44,28 @@ app.registerExtension({
         // Current file list for viewer navigation
         let currentFiles = [];
 
+        // Grid fetch callback — shared between grid view button and carousel→grid toggle
+        const gridFetch = async (searchQuery) => {
+            const params = new URLSearchParams({
+                q: searchQuery || "",
+                tab: state.activeTab,
+                utility: state.activeUtility,
+                favorites_only: state.showFavorites,
+                sort: state.sortBy,
+                workflow_only: state.workflowOnly,
+                hide_nsfw: state.hideNsfw,
+                model_filter: state.activeModelFilters.size > 0 ? [...state.activeModelFilters].join(",") : "all",
+                lora_filter: state.activeLoraFilters.size > 0 ? [...state.activeLoraFilters].join(",") : "all",
+            });
+            const data = await fetchHistory(params);
+            currentFiles = data.files;
+            return data.files;
+        };
+
         // Open image in viewer
         const openViewer = (file) => {
             const index = currentFiles.indexOf(file);
+            viewer.gridView.setViewer(viewer, gridFetch);
             viewer.open(currentFiles, index >= 0 ? index : 0);
         };
 
@@ -160,6 +179,11 @@ app.registerExtension({
             update();
         };
 
+        // Grid view button
+        el.querySelector("#cm-grid-view").onclick = () => {
+            if (currentFiles.length > 0) viewer.openGrid(currentFiles, gridFetch);
+        };
+
         // Initial render
         update();
 
@@ -170,6 +194,18 @@ app.registerExtension({
             watcherTimeout = setTimeout(() => update(), 300);
         });
       }
-    });
+    };
+
+    app.extensionManager.registerSidebarTab(tabDef);
+
+    // Reorder: place our tab right after the built-in "assets" tab
+    const tabs = app.extensionManager.getSidebarTabs();
+    const ourIdx = tabs.findIndex(t => t.id === tabDef.id);
+    const assetsIdx = tabs.findIndex(t => t.id === "assets");
+    if (ourIdx !== -1 && assetsIdx !== -1 && ourIdx !== assetsIdx + 1) {
+      const [ourTab] = tabs.splice(ourIdx, 1);
+      const insertAt = tabs.findIndex(t => t.id === "assets") + 1;
+      tabs.splice(insertAt, 0, ourTab);
+    }
   }
 });

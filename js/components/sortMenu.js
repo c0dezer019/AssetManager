@@ -20,6 +20,7 @@ export const sortOptions = [
  */
 export function updateSortButton(el) {
     const btn = el.querySelector("#cm-sort");
+    if (!btn) return;
     const current = sortOptions.find(o => o.value === state.sortBy);
     btn.title = current ? current.label : "Sort";
     btn.classList.toggle("active", state.sortBy !== "date_desc");
@@ -31,7 +32,7 @@ export function updateSortButton(el) {
  * @param {HTMLElement} el - The sidebar root element
  * @param {Function} update - Callback to refresh the grid
  */
-export function showSortMenu(e, el, update) {
+export function showSortMenu(e, el, update, anchorEl) {
     e.preventDefault();
     e.stopPropagation();
     dismissContextMenu();
@@ -61,7 +62,7 @@ export function showSortMenu(e, el, update) {
     document.body.appendChild(menu);
     setActiveContextMenu(menu);
 
-    const btnRect = el.querySelector("#cm-sort").getBoundingClientRect();
+    const btnRect = (anchorEl || el.querySelector("#cm-sort")).getBoundingClientRect();
     const menuRect = menu.getBoundingClientRect();
     let x = btnRect.left;
     let y = btnRect.bottom + 4;
