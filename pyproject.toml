@@ -1,7 +1,7 @@
 [project]
 name = "assetmanager"
 description = "An advanced asset manager that allows persistent management of gens and other assets used in workflows. Adds the ability to completely manage asset on the storage and not just within ComfyUI. Add custom paths for other assets outside of the ComfyUI ecosystem. Filter and sort assets."
-version = "2.4.0"
+version = "2.5.0"
 license = {file = "LICENSE"}
 dependencies = ["watchdog>=3.0.0"]
 
