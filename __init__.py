@@ -6,6 +6,6 @@ from .utils.watcher import start_watcher
 start_watcher()
 PromptServer.instance.app.add_routes(routes)
 
-WEB_DIRECTORY = "./js"
+WEB_DIRECTORY = "./dist"
 NODE_CLASS_MAPPINGS = {}
 NODE_DISPLAY_NAME_MAPPINGS = {}

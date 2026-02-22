@@ -1,0 +1,17 @@
+{
+  "name": "assetmanager-vue",
+  "private": true,
+  "version": "2.5.0",
+  "type": "module",
+  "scripts": {
+    "dev": "vite build --watch",
+    "build": "vite build"
+  },
+  "dependencies": {
+    "vue": "^3.5.0"
+  },
+  "devDependencies": {
+    "@vitejs/plugin-vue": "^5.2.0",
+    "vite": "^6.1.0"
+  }
+}
