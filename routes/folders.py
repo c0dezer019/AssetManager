@@ -1,9 +1,14 @@
+import logging
 import os
+import threading
 
 from aiohttp import web
 
 from ..utils.config import load_config, save_config
+from ..utils.indexer import get_index
 from ..utils.watcher import restart_watcher
+
+logger = logging.getLogger("AssetManager.folders")
 
 
 async def manage_folders(request):
@@ -16,6 +21,17 @@ async def manage_folders(request):
         config["custom_folders"] = [f for f in config["custom_folders"] if f["path"] != data["path"]]
     save_config(config)
     restart_watcher()
+
+    # Reconcile index in background to pick up new/removed folder contents
+    def _reconcile():
+        try:
+            dirs = [f["path"] for f in config["custom_folders"]]
+            get_index().reconcile(dirs)
+        except Exception:
+            logger.exception("Background reconciliation after folder change failed")
+
+    threading.Thread(target=_reconcile, daemon=True).start()
+
     return web.json_response(config)
 
 

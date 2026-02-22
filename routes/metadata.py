@@ -2,6 +2,7 @@ import os
 
 from aiohttp import web
 
+from ..utils.indexer import get_index
 from ..utils.png_io import get_asset_metadata, write_asset_metadata
 from ..utils.security import is_path_allowed
 
@@ -33,5 +34,16 @@ async def save_metadata(request):
         rating=data.get("rating", ""),
     )
     if ok:
+        # Keep index in sync without a full re-read
+        try:
+            get_index().update_asset_metadata(
+                path,
+                title=data.get("title", ""),
+                description=data.get("description", ""),
+                tags=data.get("tags", ""),
+                rating=data.get("rating", ""),
+            )
+        except Exception:
+            pass
         return web.json_response({"status": "success"})
     return web.json_response({"error": "Failed to write metadata"}, status=500)

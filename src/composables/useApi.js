@@ -81,6 +81,18 @@ export function useApi() {
         })
     }
 
+    async function fetchIndexStats() {
+        const res = await fetch('/dnh-assetmanager/index/stats')
+        return res.json()
+    }
+
+    async function postIndexRebuild() {
+        return fetch('/dnh-assetmanager/index/rebuild', {
+            method: 'POST',
+            headers: { 'Content-Type': 'application/json' },
+        })
+    }
+
     async function fetchFileBlob(url) {
         const res = await fetch(url)
         return res.blob()
@@ -99,6 +111,8 @@ export function useApi() {
         postOpenFile,
         fetchMetadata,
         postMetadata,
+        fetchIndexStats,
+        postIndexRebuild,
         fetchFileBlob,
     }
 }

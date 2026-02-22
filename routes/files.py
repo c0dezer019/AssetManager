@@ -4,6 +4,7 @@ import sys
 
 from aiohttp import web
 
+from ..utils.indexer import get_index
 from ..utils.security import is_path_allowed
 
 
@@ -12,6 +13,10 @@ async def delete_file(request):
     path = data.get("path")
     if os.path.exists(path):
         os.remove(path)
+        try:
+            get_index().remove_file(path)
+        except Exception:
+            pass
         return web.json_response({"status": "success"})
     return web.json_response({"status": "error"}, status=404)
 

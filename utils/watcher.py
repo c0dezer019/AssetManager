@@ -1,3 +1,4 @@
+import logging
 import os
 import threading
 
@@ -7,6 +8,8 @@ from watchdog.events import FileSystemEventHandler
 from watchdog.observers import Observer
 
 from .config import load_config
+
+logger = logging.getLogger("AssetManager.watcher")
 
 WATCHED_EXTENSIONS = {".png", ".webp"}
 
@@ -33,18 +36,45 @@ class AssetFileHandler(FileSystemEventHandler):
         except Exception:
             pass
 
+    def _update_index_add(self, path):
+        """Index a new or modified file, swallowing errors."""
+        try:
+            from .indexer import get_index
+            get_index().index_file(path)
+        except Exception:
+            logger.exception("Failed to index file: %s", path)
+
+    def _update_index_remove(self, path):
+        """Remove a file from the index, swallowing errors."""
+        try:
+            from .indexer import get_index
+            get_index().remove_file(path)
+        except Exception:
+            logger.exception("Failed to remove file from index: %s", path)
+
+    def _update_index_rename(self, old_path, new_path):
+        """Handle a file rename in the index, swallowing errors."""
+        try:
+            from .indexer import get_index
+            get_index().rename_file(old_path, new_path)
+        except Exception:
+            logger.exception("Failed to rename file in index: %s -> %s", old_path, new_path)
+
     def on_created(self, event):
         if not event.is_directory and os.path.splitext(event.src_path)[1].lower() in WATCHED_EXTENSIONS:
+            self._update_index_add(event.src_path)
             self._debounce_notify()
 
     def on_deleted(self, event):
         if not event.is_directory and os.path.splitext(event.src_path)[1].lower() in WATCHED_EXTENSIONS:
+            self._update_index_remove(event.src_path)
             self._debounce_notify()
 
     def on_moved(self, event):
         src_ext = os.path.splitext(event.src_path)[1].lower()
         dest_ext = os.path.splitext(event.dest_path)[1].lower()
         if not event.is_directory and (src_ext in WATCHED_EXTENSIONS or dest_ext in WATCHED_EXTENSIONS):
+            self._update_index_rename(event.src_path, event.dest_path)
             self._debounce_notify()
 
 

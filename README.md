@@ -14,6 +14,7 @@ Published to the Comfy Registry under publisher `c0dezer019`.
 - **Integrated image viewer** — double-click any image to open it in a fullscreen viewer with zoom, pan, and navigation
 - **External viewer** — open images in your system's default image viewer via the context menu
 - **Live file watching** — the sidebar updates automatically when files are added, deleted, or moved in your scanned directories
+- **SQLite index** — a persistent on-disk index caches all file and metadata information so queries hit the database instead of the filesystem, making search and filtering near-instant even with thousands of images
 
 ### Search
 
@@ -123,6 +124,11 @@ Right-click any image card for quick actions:
 - Metadata is stored as custom PNG `tEXt` chunks, so it travels with the file
 - NSFW filter also checks asset metadata fields
 
+### Index Management
+- **Index health dashboard** — open the settings panel to see index statistics: total assets, workflow/non-workflow counts, model and LoRA counts, file type breakdown, and database size
+- **Rebuild index** — click the "Rebuild Index" button in settings to drop and re-index all files from scratch (runs in the background without blocking the UI)
+- **Automatic reconciliation** — on startup, the index reconciles with the filesystem in a background thread, only re-reading files whose size or modification time has changed
+
 ### Security
 - **Secure file proxy** — images are served through a validated proxy route (`/cm-ext-view`) that only allows access to files within configured directories
 
@@ -144,6 +150,7 @@ No build step required — JavaScript files are served directly.
 - **Output directory**: Override the default ComfyUI output path in the settings panel.
 - **NSFW filter terms**: Edit `filters.json` to customize the keyword blocklist.
 - **Favorites & folders**: Persisted automatically in `config.json`.
+- **Index database**: Stored as `index.db` in the extension directory. Delete this file to force a full re-index on next startup, or use the "Rebuild Index" button in settings.
 
 ## Architecture
 
@@ -151,7 +158,7 @@ This extension has **no Python nodes** — `NODE_CLASS_MAPPINGS` is empty. It co
 
 - **`__init__.py`** — Registers all HTTP routes at import time
 - **`routes/`** — Route handlers split by concern (`favorites.py`, `files.py`, `folders.py`, `history.py`, `metadata.py`, `settings.py`, `tags.py`)
-- **`utils/`** — Shared utilities (`config.py`, `helpers.py`, `metadata.py`, `png_io.py`, `search.py`, `security.py`, `watcher.py`)
+- **`utils/`** — Shared utilities (`config.py`, `helpers.py`, `indexer.py`, `metadata.py`, `png_io.py`, `search.py`, `security.py`, `watcher.py`)
 - **`js/sidebar.js`** — Frontend entry point; registers the sidebar extension as `DefinitelyNotHuman.AssetManager`
 - **`js/components/`** — UI components (`cardRenderer.js`, `contextMenu.js`, `filterChips.js`, `filterMenu.js`, `imageViewer.js`, `infoPanel.js`, `settingsPanel.js`, `sortMenu.js`)
 - **`js/folderSelector.js`** — Modal directory picker component
@@ -176,6 +183,8 @@ This extension has **no Python nodes** — `NODE_CLASS_MAPPINGS` is empty. It co
 | POST | `/dnh-assetmanager/settings` | Update settings |
 | POST | `/dnh-assetmanager/metadata` | Save PNG asset metadata |
 | POST | `/dnh-assetmanager/open` | Open file in system viewer |
+| GET | `/dnh-assetmanager/index/stats` | Index health statistics |
+| POST | `/dnh-assetmanager/index/rebuild` | Drop and rebuild the index |
 | GET | `/cm-ext-view` | Secure file proxy |
 
 ## Development

@@ -5,7 +5,7 @@ from .files import delete_file, open_file
 from .folders import get_subdirectories, manage_folders
 from .history import get_history, serve_ext_file
 from .metadata import get_metadata, save_metadata
-from .settings import get_config_route, serve_version, update_settings
+from .settings import get_config_route, get_index_stats, rebuild_index, serve_version, update_settings
 from .tags import get_tags
 
 routes = [
@@ -22,4 +22,6 @@ routes = [
     web.post("/dnh-assetmanager/open", open_file),
     web.get("/cm-ext-view", serve_ext_file),
     web.get("/dnh-assetmanager/version", serve_version),
+    web.get("/dnh-assetmanager/index/stats", get_index_stats),
+    web.post("/dnh-assetmanager/index/rebuild", rebuild_index),
 ]
