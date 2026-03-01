@@ -1,7 +1,7 @@
 [project]
 name = "assetmanager"
 description = "ComfyUI sidebar extension for browsing, searching, and managing generated images and input assets. Scans input, output, and custom directories; indexes PNG/WebP metadata into SQLite for fast filtering by model, LoRA, sampler, prompt, and more; supports favorites, NSFW filtering, workflow loading, and an integrated fullscreen image viewer."
-version = "3.0.0"
+version = "3.1.0"
 license = {file = "LICENSE"}
 dependencies = ["watchdog>=3.0.0"]
 
