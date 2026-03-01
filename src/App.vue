@@ -41,12 +41,15 @@ const props = defineProps({
 const { state } = useAssetState()
 const api = useApi()
 
+const PAGE_SIZE = 60 // metadata batch size (lightweight JSON)
+
 // Provide app-level dependencies to all descendants
 provide('comfyApp', props.comfyApp)
 provide('comfyApi', props.comfyApi)
 provide('api', api)
 provide('state', state)
 provide('update', update)
+provide('loadMore', loadMore)
 provide('openViewer', openViewer)
 provide('toggleFavorite', toggleFavorite)
 
@@ -59,8 +62,8 @@ provide('imageViewerRef', imageViewerRef)
 provide('folderSelectorRef', folderSelectorRef)
 
 // Build URLSearchParams from current state
-function buildParams(searchOverride) {
-  return new URLSearchParams({
+function buildParams(searchOverride, offset = 0) {
+  const p = new URLSearchParams({
     q: searchOverride !== undefined ? searchOverride : state.searchQuery,
     tab: state.activeTab,
     utility: state.activeUtility,
@@ -70,27 +73,55 @@ function buildParams(searchOverride) {
     hide_nsfw: state.hideNsfw,
     model_filter: state.activeModelFilters.size > 0 ? [...state.activeModelFilters].join(',') : 'all',
     lora_filter: state.activeLoraFilters.size > 0 ? [...state.activeLoraFilters].join(',') : 'all',
+    offset,
+    limit: PAGE_SIZE,
   })
+  return p
 }
 
-// Main update function — fetches data and updates state
+// Main update function — resets to first page and replaces files
 async function update() {
   if (state.activeTab === 'custom' && state.customFolderCount === 0) {
     state.currentFiles = []
+    state.totalAssets = 0
+    state.currentOffset = 0
+    state.hasMore = false
     return
   }
 
   state.infoPanelVisible = false
   state.selectedFile = null
 
-  const params = buildParams()
+  const params = buildParams(undefined, 0)
   const data = await api.fetchHistory(params)
   state.currentFiles = data.files
+  state.totalAssets = data.total ?? data.files.length
+  state.currentOffset = data.files.length
+  state.hasMore = state.currentOffset < state.totalAssets
 }
 
-// Grid fetch callback — shared with ImageViewer for grid mode + carousel→grid toggle
+// Append next batch — called by the IntersectionObserver in AssetGrid
+async function loadMore() {
+  if (state.isLoadingMore || !state.hasMore) return
+
+  state.isLoadingMore = true
+  try {
+    const params = buildParams(undefined, state.currentOffset)
+    const data = await api.fetchHistory(params)
+    state.currentFiles = [...state.currentFiles, ...data.files]
+    state.totalAssets = data.total ?? state.totalAssets
+    state.currentOffset += data.files.length
+    state.hasMore = state.currentOffset < state.totalAssets
+  } finally {
+    state.isLoadingMore = false
+  }
+}
+
+// Grid fetch for ImageViewer — fetches all matching files (no pagination)
 async function gridFetch(searchQuery) {
-  const params = buildParams(searchQuery || '')
+  const params = buildParams(searchQuery || '', 0)
+  params.set('limit', '9999')
+  params.set('offset', '0')
   const data = await api.fetchHistory(params)
   state.currentFiles = data.files
   return data.files

@@ -23,6 +23,10 @@ const state = reactive({
     currentRating: 0,
     viewerMode: 'carousel', // "carousel" | "grid"
     currentFiles: [],
+    totalAssets: 0,
+    currentOffset: 0,
+    isLoadingMore: false,
+    hasMore: false,
     version: '',
     // UI panel visibility
     settingsVisible: false,

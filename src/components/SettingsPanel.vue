@@ -119,11 +119,12 @@ async function refreshStats() {
   }
 }
 
-function onFolderSelected(path) {
+async function onFolderSelected(path) {
   if (activeBrowseTarget === 'output') {
     outputPath.value = path
   } else {
     newPath.value = path
+    await addFolder()
   }
 }
 

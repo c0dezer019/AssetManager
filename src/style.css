@@ -153,6 +153,19 @@
     overflow-y: auto;
 }
 
+.cm-scroll-sentinel {
+    height: 1px;
+    grid-column: 1 / -1;
+}
+
+.cm-loading-more {
+    grid-column: 1 / -1;
+    text-align: center;
+    padding: 16px;
+    color: #666;
+    font-size: 18px;
+}
+
 /* Card Styling */
 .cm-card {
     aspect-ratio: 1/1;
@@ -162,6 +175,17 @@
     overflow: hidden;
     cursor: pointer;
     position: relative;
+}
+
+.cm-card-spinner {
+    position: absolute;
+    inset: 0;
+    display: flex;
+    align-items: center;
+    justify-content: center;
+    color: #555;
+    font-size: 24px;
+    z-index: 1;
 }
 
 .cm-card img {
@@ -660,7 +684,7 @@
 /* Context Menu */
 .cm-context-menu {
     position: fixed;
-    z-index: 10001;
+    z-index: 10100;
     background: #1a1a1a;
     border: 1px solid #333;
     border-radius: 8px;
@@ -1797,6 +1821,15 @@ textarea.cm-info-input {
     border: none;
 }
 
+.cm-viewer-grid-zoom-pct {
+    font-size: 11px;
+    color: #888;
+    min-width: 36px;
+    text-align: right;
+    font-variant-numeric: tabular-nums;
+    user-select: none;
+}
+
 /* Hide carousel elements in grid mode */
 .cm-viewer-grid-mode .cm-viewer-img-container,
 .cm-viewer-grid-mode .cm-viewer-carousel-ghost,
@@ -1811,8 +1844,8 @@ textarea.cm-info-input {
     overflow: hidden;
     cursor: pointer;
     position: relative;
-    border: 2px solid transparent;
     background: #181818;
+    border: 2px solid transparent;
     transition: border-color 0.15s, transform 0.15s;
 }
 

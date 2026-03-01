@@ -11,7 +11,8 @@
           placeholder="Type a path or pick below..."
           v-model="pathInput"
           @input="handleInput"
-          @keydown.enter.prevent="onEnter"
+          @keydown.tab.prevent="handleTab"
+          @keydown.enter.prevent="confirm"
         />
         <div class="cm-selector-list">
           <!-- Up entry -->
@@ -38,27 +39,47 @@
 </template>
 
 <script setup>
-import { ref, computed } from 'vue'
+import { ref, computed, nextTick } from 'vue'
 
 const visible = ref(false)
 const currentPath = ref('')
 const pathInput = ref('')
 const allDirs = ref([])
 const filter = ref('')
+const pathInputRef = ref(null)
 let debounceTimer = null
 let lastFetchedParent = null
 let onSelectCallback = null
+let tabCycleIndex = -1
+let tabFilterSnapshot = null
 
 function isAbsolute(p) {
   return p.startsWith('/') || /^[A-Za-z]:[\\\/]/.test(p)
 }
 
+function sep(p) {
+  return p.includes('\\') ? '\\' : '/'
+}
+
+function isRoot(p) {
+  return p === '/' || /^[A-Za-z]:[\\\/]?$/.test(p)
+}
+
+function ensureDriveRoot(p) {
+  return /^[A-Za-z]:$/.test(p) ? p + '\\' : p
+}
+
 const canGoUp = computed(() => {
-  return currentPath.value && currentPath.value !== '/' && !currentPath.value.endsWith(':\\')
+  return currentPath.value && !isRoot(currentPath.value)
 })
 
 const parentPath = computed(() => {
-  return currentPath.value.split(/[\\/]/).slice(0, -1).join('/') || '/'
+  const p = currentPath.value
+  const s = sep(p)
+  const parts = p.split(/[\\/]/)
+  parts.pop()
+  const result = parts.join(s)
+  return ensureDriveRoot(result) || s
 })
 
 const filteredDirs = computed(() => {
@@ -69,7 +90,8 @@ const filteredDirs = computed(() => {
 
 function joinPath(base, dir) {
   if (!base) return dir
-  return `${base}/${dir}`.replace(/\/+/g, '/')
+  const s = sep(base)
+  return base.endsWith(s) ? base + dir : base + s + dir
 }
 
 async function fetchDirs(path) {
@@ -88,6 +110,8 @@ async function navigateTo(path) {
 
 function handleInput() {
   clearTimeout(debounceTimer)
+  tabCycleIndex = -1
+  tabFilterSnapshot = null
   debounceTimer = setTimeout(async () => {
     const typed = pathInput.value.trim()
     if (!typed || !isAbsolute(typed)) {
@@ -98,11 +122,11 @@ function handleInput() {
     let parentDir, partial
 
     if (typed.endsWith('/') || typed.endsWith('\\')) {
-      parentDir = typed.replace(/[\/\\]+$/, '') || '/'
+      parentDir = ensureDriveRoot(typed.replace(/[\/\\]+$/, '')) || '/'
       partial = ''
     } else {
       const sepIdx = Math.max(typed.lastIndexOf('/'), typed.lastIndexOf('\\'))
-      parentDir = typed.substring(0, sepIdx) || '/'
+      parentDir = ensureDriveRoot(typed.substring(0, sepIdx)) || '/'
       partial = typed.substring(sepIdx + 1).toLowerCase()
     }
 
@@ -115,20 +139,31 @@ function handleInput() {
   }, 150)
 }
 
-function onEnter() {
-  clearTimeout(debounceTimer)
-  const typed = pathInput.value.trim()
-  if (typed && isAbsolute(typed)) {
-    navigateTo(typed)
+function handleTab() {
+  const matches = filteredDirs.value
+  if (!matches.length) return
+  const currentFilter = filter.value
+  if (currentFilter !== tabFilterSnapshot) {
+    tabCycleIndex = -1
+    tabFilterSnapshot = currentFilter
   }
+  tabCycleIndex = (tabCycleIndex + 1) % matches.length
+  pathInput.value = joinPath(currentPath.value, matches[tabCycleIndex])
 }
 
-function show(callback) {
+async function show(callback) {
   onSelectCallback = callback
   visible.value = true
+  if (!currentPath.value) {
+    const res = await fetch('/dnh-assetmanager/subdirs?path=')
+    const data = await res.json()
+    currentPath.value = data.home || '/'
+  }
   pathInput.value = currentPath.value
   lastFetchedParent = null
-  navigateTo(currentPath.value)
+  await navigateTo(currentPath.value)
+  await nextTick()
+  pathInputRef.value?.focus()
 }
 
 function cancel() {

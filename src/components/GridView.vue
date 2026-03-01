@@ -2,16 +2,20 @@
   <div
     ref="containerRef"
     class="cm-viewer-grid"
-    @wheel.prevent="onGridWheel"
+    @wheel="onGridWheel"
   >
     <div
       v-for="(file, idx) in files"
       :key="file.full_path"
+      ref="itemRefs"
       class="cm-viewer-grid-item"
       :class="{ active: idx === currentIndex }"
       @click.stop="selectItem(idx)"
     >
-      <img :src="file.url" loading="lazy" draggable="false" />
+      <div v-if="visibleSet.has(file.full_path) && !loadedSet.has(file.full_path)" class="cm-card-spinner">
+        <span class="pi pi-spin pi-spinner"></span>
+      </div>
+      <img v-if="visibleSet.has(file.full_path)" v-show="loadedSet.has(file.full_path)" :src="file.url" draggable="false" @load="loadedSet.add(file.full_path)" />
       <span class="cm-viewer-grid-label" :title="file.filename">{{ truncName(file.filename) }}</span>
     </div>
   </div>
@@ -76,6 +80,7 @@
         @input="applySlider"
       />
       <span class="pi pi-search-plus cm-viewer-grid-slider-icon"></span>
+      <span class="cm-viewer-grid-zoom-pct">{{ zoomPct }}%</span>
     </div>
   </div>
   <FilterMenu ref="filterMenuRef" />
@@ -83,7 +88,7 @@
 </template>
 
 <script setup>
-import { ref, computed, inject, nextTick } from 'vue'
+import { ref, reactive, computed, inject, provide, nextTick, onUnmounted } from 'vue'
 import { useAssetState } from '../composables/useAssetState.js'
 import FilterMenu from './FilterMenu.vue'
 import SortMenu from './SortMenu.vue'
@@ -97,19 +102,68 @@ const { state } = useAssetState()
 const imageViewerRef = inject('imageViewerRef')
 
 const containerRef = ref(null)
+const itemRefs = ref([])
 const filterBtnRef = ref(null)
 const sortBtnRef = ref(null)
 const filterMenuRef = ref(null)
 const sortMenuRef = ref(null)
 const searchQuery = ref('')
 const sliderValue = ref(160)
+const autoThumbSize = ref(160)
 let sliderActive = false
+
+// Override `update` for child FilterMenu/SortMenu so they trigger gridUpdate
+provide('update', () => gridUpdate())
+
+// Track which grid items are visible via IntersectionObserver
+const visibleSet = reactive(new Set())
+const loadedSet = reactive(new Set())
+let visObserver = null
+
+function setupVisibilityObserver() {
+  visObserver?.disconnect()
+
+  // Prune stale entries for files no longer in the list
+  const currentPaths = new Set(props.files.map(f => f.full_path))
+  for (const path of visibleSet) {
+    if (!currentPaths.has(path)) visibleSet.delete(path)
+  }
+  for (const path of loadedSet) {
+    if (!currentPaths.has(path)) loadedSet.delete(path)
+  }
+
+  const root = containerRef.value
+  if (!root) return
+
+  visObserver = new IntersectionObserver(
+    (entries) => {
+      for (const entry of entries) {
+        const path = entry.target.dataset.vpath
+        if (entry.isIntersecting) visibleSet.add(path)
+        else { visibleSet.delete(path); loadedSet.delete(path) }
+      }
+    },
+    { root, rootMargin: '400px 0px 400px 0px' }
+  )
+
+  nextTick(() => {
+    const items = root.querySelectorAll('.cm-viewer-grid-item')
+    items.forEach((el, i) => {
+      el.dataset.vpath = props.files[i]?.full_path
+      visObserver.observe(el)
+    })
+  })
+}
+
+onUnmounted(() => visObserver?.disconnect())
 
 const hasActiveFilters = computed(() =>
   state.activeUtility !== 'all' ||
   state.activeModelFilters.size > 0 ||
   state.activeLoraFilters.size > 0
 )
+
+const zoomPct = computed(() => Math.round((sliderValue.value / autoThumbSize.value) * 100))
 
 function truncName(name) {
   return name.length > 18 ? name.substring(0, 15) + '...' : name
@@ -126,7 +180,9 @@ function closeViewer() {
 async function gridUpdate() {
   const newFiles = await imageViewerRef.value?.gridUpdate(searchQuery.value)
   if (newFiles) {
-    nextTick(() => render())
+    nextTick(() => {
+      render()
+    })
   }
 }
 
@@ -172,19 +228,18 @@ function render() {
   container.classList.remove('cm-grid-slider-active')
   container.style.removeProperty('--grid-thumb-size')
 
-  // Auto-calculate columns
-  const rect = container.getBoundingClientRect()
-  const area = rect.width * rect.height
-  const thumbSize = Math.sqrt(area / props.files.length)
-  const cols = Math.max(1, Math.min(
-    Math.floor(rect.width / Math.max(thumbSize, 100)),
-    Math.floor(rect.width / 100)
-  ))
+  // Default to 7 columns
+  const cols = 7
   container.style.setProperty('--grid-cols', cols)
 
-  // Sync slider to auto-calculated thumb width
+  // Sync slider to default column width
+  const rect = container.getBoundingClientRect()
   const autoThumbPx = Math.round(rect.width / cols)
-  sliderValue.value = Math.max(80, Math.min(400, autoThumbPx))
+  autoThumbSize.value = Math.max(80, Math.min(400, autoThumbPx))
+  sliderValue.value = autoThumbSize.value
+
+  // Start observing visibility after layout settles
+  setupVisibilityObserver()
 }
 
 function applySlider() {
@@ -196,13 +251,20 @@ function applySlider() {
 }
 
 function onGridWheel(e) {
+  // Zoom only when hovering a focused (active) grid item
   if (state.viewerMode !== 'grid') return
+  const item = e.target.closest('.cm-viewer-grid-item.active')
+  if (!item) return
+  e.preventDefault()
   const step = e.deltaY < 0 ? 20 : -20
   sliderValue.value = Math.max(80, Math.min(400, sliderValue.value + step))
   applySlider()
 }
 
 function reset() {
+  visObserver?.disconnect()
+  visibleSet.clear()
+  loadedSet.clear()
   const container = containerRef.value
   if (container) {
     container.classList.remove('cm-grid-slider-active')

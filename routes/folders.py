@@ -37,8 +37,9 @@ async def manage_folders(request):
 
 async def get_subdirectories(request):
     path = request.query.get("path", "")
+    home = os.path.expanduser("~")
     if not path:
-        return web.json_response({"dirs": ["/"] if os.name != 'nt' else ["C:\\"]})
+        return web.json_response({"dirs": ["/"] if os.name != 'nt' else ["C:\\"], "home": home})
     try:
         if os.path.isdir(path):
             dirs = [d for d in os.listdir(path) if os.path.isdir(os.path.join(path, d))]

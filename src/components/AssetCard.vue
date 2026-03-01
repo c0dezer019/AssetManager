@@ -1,5 +1,6 @@
 <template>
   <div
+    ref="cardEl"
     class="cm-card"
     :class="{ selected: isSelected }"
     @click="loadWorkflow"
@@ -18,7 +19,10 @@
       <span class="pi pi-sitemap"></span>
     </div>
     <div v-if="createdDate" class="cm-date-badge">{{ createdDate }}</div>
-    <img :src="file.url" loading="lazy" />
+    <div v-if="isVisible && !isLoaded" class="cm-card-spinner">
+      <span class="pi pi-spin pi-spinner"></span>
+    </div>
+    <img v-if="isVisible" v-show="isLoaded" :src="file.url" @load="isLoaded = true" />
     <div class="cm-card-overlay">
       <span class="cm-overlay-name" :title="file.filename">{{ truncName }}</span>
       <div class="cm-overlay-meta">
@@ -30,7 +34,7 @@
 </template>
 
 <script setup>
-import { computed, inject } from 'vue'
+import { ref, computed, inject, onMounted, onUnmounted } from 'vue'
 import { useAssetState } from '../composables/useAssetState.js'
 
 const props = defineProps({
@@ -41,6 +45,11 @@ defineEmits(['open-viewer', 'toggle-favorite', 'context-menu'])
 
 const { state } = useAssetState()
 const comfyApp = inject('comfyApp')
+const registerVisibility = inject('registerVisibility')
+
+const cardEl = ref(null)
+const isVisible = ref(false)
+const isLoaded = ref(false)
 
 const truncName = computed(() => {
   const name = props.file.filename
@@ -55,6 +64,19 @@ const createdDate = computed(() => {
 })
 
 const isSelected = computed(() => state.selectedFile === props.file)
+
+let unregister = null
+
+onMounted(() => {
+  if (cardEl.value) {
+    unregister = registerVisibility(cardEl.value, (visible) => {
+      isVisible.value = visible
+      if (!visible) isLoaded.value = false
+    })
+  }
+})
+
+onUnmounted(() => unregister?.())
 
 async function loadWorkflow() {
   const blob = await (await fetch(props.file.url)).blob()
